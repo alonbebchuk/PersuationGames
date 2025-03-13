@@ -124,11 +124,3 @@ def load_werewolf_dataset(args, logger, strategy, tokenizer, mode):
                                 torch.tensor(all_input_mask, dtype=torch.long),
                                 torch.tensor(all_label, dtype=torch.long))
     return Dataset
-
-
-def log_predictions(args, splits, preds):
-    for split in splits:
-        data = {strategy: preds[split][strategy] for strategy in STRATEGIES}
-        df = pd.DataFrame.from_dict(data)
-        output_path = os.path.join(args.output_dir, f'predictions_{split}.csv')
-        df.to_csv(output_path, index=False)
