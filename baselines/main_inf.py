@@ -17,7 +17,7 @@ from tqdm import trange, tqdm
 
 from transformers import *
 
-from read_data import *
+from read_dataset import load_werewolf_dataset
 from models import *
 
 
@@ -32,8 +32,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model_type", default='bert', type=str)
 parser.add_argument("--model_name", default='bert-base-uncased', type=str)
 parser.add_argument("--output_dir", default='out', type=str)
+parser.add_argument("--log_dir", default='log.txt', type=str)
+parser.add_argument("--pretrained_dir", default='', type=str, help='Specify the path of checkpoints if you want to finetune a model')
 parser.add_argument("--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory")
-parser.add_argument("--dataset", default='Ego4D', type=str, help="Name of dataset, Ego4D or Youtube")
+parser.add_argument("--dataset", nargs='+', default=('Ego4D',), type=str, help="Name of dataset, Ego4D or Youtube")
 
 parser.add_argument("--gpu", default='0', type=str, help='id(s) for CUDA_VISIBLE_DEVICES')
 parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
@@ -62,7 +64,6 @@ parser.add_argument("--context_size", type=int, default=3, help="size of the con
 parser.add_argument("--avalon", action="store_true", help="Testing on avalon data as well")
 parser.add_argument("--video", action="store_true", help="Using video features")
 parser.add_argument("--video_path", type=str, default='data/Ego4D/video_feature', help="Path to video features")
-parser.add_argument("--deduction", action="store_true", help="Deduction prediction")
 args = parser.parse_args()
 
 # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
@@ -81,7 +82,7 @@ formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s -   %(message)
 if not os.path.exists(args.output_dir):
     os.makedirs(args.output_dir)
 
-fh = log.FileHandler(args.output_dir + '/log.txt')
+fh = log.FileHandler(os.path.join(args.output_dir, args.log_dir))
 fh.setLevel(log.INFO)
 fh.setFormatter(formatter)
 
@@ -221,7 +222,7 @@ def train(model, train_dataset, dev_dataset):
     return global_step, tr_loss / global_step, best_f1
 
 
-def evaluate(model, eval_dataset=None, mode='dev', prefix='', output_dir=None):
+def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, shuffle=False)
 
     logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
@@ -232,7 +233,6 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix='', output_dir=None):
     nb_eval_steps = 0
     preds = None
     labels = None
-    utterance_encodings = None
     model.eval()
 
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
@@ -243,33 +243,21 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix='', output_dir=None):
             if args.video:
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1], "video_features": batch[3]}
                 outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"],
-                                video_features=inputs["video_features"], output_hidden_states=args.deduction)
+                              video_features=inputs["video_features"])
             else:
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"],
-                                output_hidden_states=args.deduction)
+                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
 
-            # logger.info(outputs)
             logits, tmp_eval_loss = outputs['logits'], outputs['loss']
-            if args.deduction:
-                hidden_states = outputs['hidden_states'][-1][:][0]
             eval_loss += tmp_eval_loss.item()
         nb_eval_steps += 1
 
         if preds is None:
             preds = logits.detach().cpu().numpy()
             labels = target.detach().cpu().numpy()
-            if args.deduction:
-                utterance_encodings = hidden_states.detach().cpu().numpy()
         else:
             preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
             labels = np.append(labels, target.detach().cpu().numpy(), axis=0)
-            if args.deduction:
-                utterance_encodings = np.append(utterance_encodings, hidden_states.detach().cpu().numpy(), axis=0)
-
-    np.save(f'{output_dir}/avalon_logits_test.npy', preds)
-    np.save(f'{output_dir}/avalon_labels_test.npy', labels)
-    return None, None
 
     eval_loss /= nb_eval_steps
 
@@ -277,7 +265,6 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix='', output_dir=None):
 
     labels = labels.tolist()
     preds = preds.tolist()
-    # utterance_encodings = utterance_encodings.tolist()
 
     assert len(labels) == len(preds), f"{len(labels)}, {len(preds)}"
     correct = [1 if pred == label else 0 for pred, label in zip(preds, labels)]
@@ -292,181 +279,35 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix='', output_dir=None):
             'preds': preds,
         }
     else:
-        results = {
+        results={
             'f1': f1_score(y_true=labels, y_pred=preds),
             'loss': eval_loss
         }
     logger.info(results['f1'])
-    return results, utterance_encodings
+    return results, None
 
 
-def log_predictions(dataset, splits, preds):
-    for split in splits:
-        with open(os.path.join('data', dataset, f'{split}.json'), 'r') as f:
-            games = json.load(f)
-        id = -1
-        data = defaultdict(list)
-        for game in games:
-            # print(f"{game['EG_ID']}_{game['Game_ID']}")
-            for record in game['Dialogue']:
-                id += 1
-                pred = []
-                for strategy in Strategies:
-                    if preds[split][strategy][id] == 1:
-                        pred.append(strategy)
-                if len(pred) == 0:
-                    pred.append("No Strategy")
-                for key, val in record.items():
-                    data[key].append(val)
-                data['prediction'].append(pred)
-        # print(f"{record['Rec_Id']},{record['speaker']},{record['timestamp']},{record['utterance']},{record['annotation']},{pred}")
-        df = pd.DataFrame.from_dict(data)
-        df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
-
-
-def train_deduction(model, train_dataset, dev_dataset):
-    optimizer = torch.optim.SGD(model.parameters(), lr=5e-4)
-    tb_writer = SummaryWriter(args.output_dir)
-
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-
-    t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-
-    logger.info("***** Running training *****")
-    logger.info("  Num examples = %d", len(train_dataset))
-    logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info(
-        "  Total train batch size (w. parallel, accumulation) = %d",
-        args.batch_size
-        * args.gradient_accumulation_steps),
-    logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
-    logger.info("  Total optimization steps = %d", t_total)
-
-    global_step = 0
-    wait_step = 0
-    epochs_trained = 0
-    steps_trained_in_current_epoch = 0
-    best_f1 = 0
-    tr_loss, logging_loss = 0.0, 0.0
-
-    model.zero_grad()
-
-    train_iterator = trange(epochs_trained, int(args.num_train_epochs), desc='Epoch')
-
-    for epoch in train_iterator:
-        epoch_iterator = tqdm(train_dataloader, desc="Iteration")
-        for step, batch in enumerate(epoch_iterator):
-            if steps_trained_in_current_epoch > 0:
-                steps_trained_in_current_epoch -= 1
-                continue
-            model.train()
-
-            batch = tuple(t.to(args.device) for t in batch)
-            # print(epoch, batch)
-            loss, logits = model(inputs=batch[0], labels=batch[1])
-            if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
-
-            loss.backward()
-            tr_loss += loss.item()
-
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                model.zero_grad()
-                global_step += 1
-
-                if args.logging_steps > 0 and global_step % args.logging_steps == 0:
-                    tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
-                    logging_loss = tr_loss
-
-                    logger.info("logging train info!!!")
-                    logger.info("*")
-
-        # eval and save the best model based on dev set after each epoch
-        if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
-
-            results = evaluate_deduction(model, dev_dataset, mode="dev", prefix=str(global_step))
-            for i, (key, value) in enumerate(results.items()):
-                tb_writer.add_scalar("eval_{}".format(key), value, epoch)
-            # tb_writer.add_scalar("lr", scheduler.get_last_lr()[0], epoch)
-            # tb_writer.add_scalar("loss", tr_loss - logging_loss, epoch)
-            logging_loss = tr_loss
-            logger.info(f"{results}")
-            if results['f1'] >= best_f1:
-                best_f1 = results['f1']
-                wait_step = 0
-            # output_dir = os.path.join(args.output_dir, "best")
-            # if not os.path.exists(output_dir):
-            # 	os.makedirs(output_dir)
-            # logger.info("Saving best model to %s", output_dir)
-            # model_to_save = (
-            # 	model.module if hasattr(model, "module") else model)
-            # model_to_save.save_pretrained(output_dir)
-            # torch.save(args, os.path.join(output_dir, "training_args.bin"))
-            else:
-                wait_step += 1
-                if wait_step >= args.early_stopping_patience:
-                    train_iterator.close()
-                    break
-
-    tb_writer.close()
-    return global_step, tr_loss / global_step, best_f1
-
-
-def evaluate_deduction(model, eval_dataset=None, mode='dev', prefix=''):
-    eval_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, shuffle=False)
-
-    logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
-    logger.info("  Num examples = %d", len(eval_dataset))
-    logger.info("  Batch size = %d", args.eval_batch_size)
-
-    eval_loss = 0.0
-    nb_eval_steps = 0
-    preds = None
-    labels = None
-    model.eval()
-
-    for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        batch = tuple(t.to(args.device) for t in batch)
-
-        with torch.no_grad():
-            loss, logits = model(inputs=batch[0], labels=batch[1])
-            eval_loss += loss.item()
-        nb_eval_steps += 1
-
-        if preds is None:
-            preds = logits.detach().cpu().numpy()
-            labels = batch[1].detach().cpu().numpy()
-        else:
-            preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-            labels = np.append(labels, batch[1].detach().cpu().numpy(), axis=0)
-
-    eval_loss /= nb_eval_steps
-    print(preds.shape)
-    preds = np.argmax(preds, axis=1)
-
-    labels = labels.tolist()
-    preds = preds.tolist()
-    # utterance_encodings = utterance_encodings.tolist()
-
-    assert len(labels) == len(preds), f"{len(labels)}, {len(preds)}"
-
-    if prefix == 'final':
-        results = {
-            'f1': f1_score(y_true=labels, y_pred=preds),
-            'precision': precision_score(y_true=labels, y_pred=preds),
-            'recall': recall_score(y_true=labels, y_pred=preds),
-            'accuracy': accuracy_score(y_true=labels, y_pred=preds),
-            'report': classification_report(y_true=labels, y_pred=preds),
-            'preds': preds,
-        }
-    else:
-        results = {
-            'f1': f1_score(y_true=labels, y_pred=preds),
-            'loss': eval_loss
-        }
-    logger.info(results)
-    return results
+def log_predictions(splits, preds):
+    for dataset in args.dataset:
+        for split in splits:
+            with open(os.path.join('data', dataset, f'{split}.json'), 'r') as f:
+                games = json.load(f)
+            id = -1
+            data = defaultdict(list)
+            for game in games:
+                for record in game['Dialogue']:
+                    id += 1
+                    pred = []
+                    for strategy in Strategies:
+                        if preds[split][strategy][id] == 1:
+                            pred.append(strategy)
+                    if len(pred) == 0:
+                        pred.append("No Strategy")
+                    for key, val in record.items():
+                        data[key].append(val)
+                    data['prediction'].append(pred)
+            df = pd.DataFrame.from_dict(data)
+            df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
 
 
 def main():
@@ -489,8 +330,6 @@ def main():
     averaged_f1 = {'dev': 0.0, 'test': 0.0, 'avalon': 0.0}
     splits = []
 
-    utterance_encodings = {'dev': None, 'test': None, 'train': None}
-
     if not args.no_eval:
         splits.append('dev')
     if not args.no_test:
@@ -509,15 +348,19 @@ def main():
         torch.manual_seed(args.seed)
         if len(args.gpu) > 0:
             torch.cuda.manual_seed_all(args.seed)
-        model = model_class.from_pretrained(args.model_name, num_labels=2)
+        if len(args.pretrained_dir) == 0:
+            model = model_class.from_pretrained(args.model_name, num_labels=2)
+        else:
+            model = model_class.from_pretrained(os.path.join(args.pretrained_dir, strategy, 'best'))
+            logger.info(f"Load pretrained checkpoints from {os.path.join(args.pretrained_dir, strategy, 'best')}")
         model.to(args.device)
         tokenizer = tokenizer_class.from_pretrained(args.model_name)
         if args.context_size != 0:
             tokenizer.add_tokens(['<end of text>'], special_tokens=True)
             model.resize_token_embeddings(len(tokenizer))
 
-        train_dataset = read_data(args, logger, strategy, tokenizer, mode='train')
-        dev_dataset = read_data(args, logger, strategy, tokenizer, mode='dev')
+        train_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='train')
+        dev_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='dev')
 
         if not args.no_train:
             global_step, tr_loss, best_f1 = train(model, train_dataset, dev_dataset)
@@ -528,7 +371,7 @@ def main():
         model.to(args.device)
 
         if not args.no_eval:
-            results, utterance_encoding = evaluate(model, dev_dataset, mode="dev", prefix='final')
+            results, _ = evaluate(model, dev_dataset, mode="dev", prefix='final')
             filename = os.path.join(args.output_dir, 'results_dev.json')
             with open(filename, 'w') as f:
                 json.dump(results, f)
@@ -536,13 +379,7 @@ def main():
             if all_correct['dev'] is None:
                 all_correct['dev'] = results['correct']
             else:
-                all_correct['dev'] = [x + y for x, y in zip(all_correct['dev'], results['correct'])]
-
-            if args.deduction:
-                if utterance_encodings['dev'] is None:
-                    utterance_encodings['dev'] = utterance_encoding
-                else:
-                    utterance_encodings['dev'] = np.sum([utterance_encodings['dev'], utterance_encoding], axis=0)
+                all_correct['dev'] = [x + y for x,y in zip(all_correct['dev'], results['correct'])]
 
             preds['dev'][strategy] = results['preds']
             results.pop('correct')
@@ -551,54 +388,72 @@ def main():
             all_result['dev'][strategy] = results
 
         if not args.no_test:
-            test_dataset = read_data(args, logger, strategy, tokenizer, mode='test')
-            results, utterance_encoding = evaluate(model, test_dataset, mode="test", prefix='final', output_dir=args.output_dir)
-            # filename = os.path.join(args.output_dir, 'results_test.json')
-            # with open(filename, 'w') as f:
-            #     json.dump(results, f)
-            #
-            # if all_correct['test'] is None:
-            #     all_correct['test'] = results['correct']
-            # else:
-            #     all_correct['test'] = [x + y for x, y in zip(all_correct['test'], results['correct'])]
-            #
-            # if args.deduction:
-            #     if utterance_encodings['test'] is None:
-            #         utterance_encodings['test'] = utterance_encoding
-            #     else:
-            #         utterance_encodings['test'] = np.sum([utterance_encodings['test'], utterance_encoding], axis=0)
-            #
-            # preds['test'][strategy] = results['preds']
-            # results.pop('correct')
-            # results.pop('preds')
-            # averaged_f1['test'] += results['f1']
-            # all_result['test'][strategy] = results
+            test_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='test')
+            results, _ = evaluate(model, test_dataset, mode="test", prefix='final')
+            filename = os.path.join(args.output_dir, 'results_test.json')
+            with open(filename, 'w') as f:
+                json.dump(results, f)
+
+            if all_correct['test'] is None:
+                all_correct['test'] = results['correct']
+            else:
+                all_correct['test'] = [x + y for x,y in zip(all_correct['test'], results['correct'])]
+
+            preds['test'][strategy] = results['preds']
+            results.pop('correct')
+            results.pop('preds')
+            averaged_f1['test'] += results['f1']
+            all_result['test'][strategy] = results
 
         if args.avalon:
-            avalon_dataset = read_data(args, logger, strategy, tokenizer, mode='avalon')
-            results, utterance_encoding = evaluate(model, avalon_dataset, mode="avalon", prefix='final', output_dir=args.output_dir)
-            # filename = os.path.join(args.output_dir, 'results_avalon.json')
-            # with open(filename, 'w') as f:
-            #     json.dump(results, f)
-            #
-            # if all_correct['avalon'] is None:
-            #     all_correct['avalon'] = results['correct']
-            # else:
-            #     all_correct['avalon'] = [x + y for x, y in zip(all_correct['avalon'], results['correct'])]
-            #
-            # preds['avalon'][strategy] = results['preds']
-            # results.pop('correct')
-            # results.pop('preds')
-            # averaged_f1['avalon'] += results['f1']
-            # all_result['avalon'][strategy] = results
+            avalon_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='avalon')
+            results, _ = evaluate(model, avalon_dataset, mode="avalon", prefix='final')
+            filename = os.path.join(args.output_dir, 'results_avalon.json')
+            with open(filename, 'w') as f:
+                json.dump(results, f)
 
-        if args.deduction:
-            results, utterance_encoding = evaluate(model, train_dataset, mode="train", prefix='final')
-            if utterance_encodings['train'] is None:
-                utterance_encodings['train'] = utterance_encoding
+            if all_correct['avalon'] is None:
+                all_correct['avalon'] = results['correct']
             else:
-                utterance_encodings['train'] = np.sum([utterance_encodings['train'], utterance_encoding], axis=0)
+                all_correct['avalon'] = [x + y for x,y in zip(all_correct['avalon'], results['correct'])]
 
+            preds['avalon'][strategy] = results['preds']
+            results.pop('correct')
+            results.pop('preds')
+            averaged_f1['avalon'] += results['f1']
+            all_result['avalon'][strategy] = results
+
+    args.output_dir = output_dir
+    # log predictions.csv
+    log_predictions(splits, preds)
+
+    for split in splits:
+        result = all_result[split]
+        cnt = 0
+        for x in all_correct[split]:
+            if x == len(Strategies):
+                cnt += 1
+        result['overall_accuracy'] = cnt / len(all_correct[split])
+        result['averaged_f1'] = averaged_f1[split] / len(Strategies)
+
+        filename = os.path.join(args.output_dir, f'results_{split}.json')
+        with open(filename, 'w') as f:
+            json.dump(result, f)
+
+        # beautiful print results
+        with open(os.path.join(args.output_dir, f"results_{split}_beaut.txt"), 'w') as f:
+
+            for strategy in Strategies:
+                f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
+            f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
+
+            for strategy in Strategies:
+                report = result[strategy]['report']
+                result[strategy].pop('report')
+                f.write(f"{strategy}\n")
+                json.dump(result[strategy], f, indent=4)
+                f.write(report)
+                f.write("\n")
 
 if __name__ == "__main__":
     main()

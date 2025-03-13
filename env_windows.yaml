@@ -1,0 +1,23 @@
+name: PersuasionGames
+channels:
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch=1.12.1
+  - torchvision=0.13.1
+  - torchaudio=0.12.1
+  - cudatoolkit=11.3
+  - numpy
+  - pandas
+  - scikit-learn
+  - transformers
+  - tensorboard
+  - pillow
+  - tqdm
+  - datasets
+  - pip
+  - pip:
+    - pyyaml==6.0
+    - sentencepiece==0.1.95
+    - openai==1.66.3 

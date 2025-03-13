@@ -1,8 +1,11 @@
-import copy
+from typing import Optional, Tuple, Union
 
-from transformers.models.bert.modeling_bert import *
-from transformers.models.roberta.modeling_roberta import *
+import torch
 from torch import nn
+from torch.nn import CrossEntropyLoss, MSELoss, BCEWithLogitsLoss
+from transformers.modeling_outputs import SequenceClassifierOutput
+from transformers.models.bert.modeling_bert import BertModel, BertPreTrainedModel
+from transformers.models.roberta.modeling_roberta import RobertaModel, RobertaPreTrainedModel
 
 
 class BertForSequenceClassificationWithVideo(BertPreTrainedModel):
@@ -17,48 +20,10 @@ class BertForSequenceClassificationWithVideo(BertPreTrainedModel):
         )
         self.dropout = nn.Dropout(classifier_dropout)
 
-        # --------------------------------------------------------------
-        # map context and video feature into 3x768
-        # self.compress = nn.Linear(config.hidden_size * 18, config.hidden_size * 3)  # compress video feature from 18 to 3
-        # self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)
-
-        # map context to 3x768 and concatenate it with video feature
-        # self.compress = nn.Linear(config.hidden_size * 15, config.hidden_size)  # compress video feature from 18 to 3
-        # self.fuser = nn.Linear(config.hidden_size * 5, config.hidden_size)  # use three crops + context
-
-        # flatten all context or video features
-        # self.fuser = nn.Linear(config.hidden_size * 2, config.hidden_size)  # only use center crop
-        self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)  # use three crops
-        # self.fuser = nn.Linear(config.hidden_size * 19, config.hidden_size)  # use context and video crops
-
-        # use self-attention layer
-        # self.modal_embed = nn.Parameter(torch.zeros(1, 4, 768))
-        # norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        # self.att1 = MultiScaleBlock(
-        #     dim=768,
-        #     dim_out=768,
-        #     num_heads=8,
-        #     mlp_ratio=4.0,
-        #     qkv_bias=True,
-        #     drop_rate=0.0,
-        #     drop_path=0.1,
-        #     norm_layer=norm_layer,
-        #     kernel_q=[1, 1, 1],
-        #     kernel_kv=[1, 1, 1],
-        #     stride_q=[1, 1, 1],
-        #     stride_kv=[1, 1, 1],
-        #     mode="conv",
-        #     has_cls_embed=False,
-        #     pool_first=False,
-        # )
-        # self.att2 = copy.deepcopy(self.att1)
-        # self.att3 = copy.deepcopy(self.att1)
-        # self.norm = norm_layer(768)
-        # --------------------------------------------------------------
+        self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)
 
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -97,43 +62,14 @@ class BertForSequenceClassificationWithVideo(BertPreTrainedModel):
 
         pooled_output = outputs[1]
 
-        # No video context
-        video_features = video_features.view(video_features.shape[0], -1)  # flatten features of the three crops
+        video_features = video_features.view(video_features.shape[0], -1)
         x = torch.cat((pooled_output, video_features), 1)
 
-        # map context and video feature into 3x768
-        # video_features = video_features.view(video_features.shape[0], -1)  # flatten features of the three crops
-        # video_features = self.dropout(video_features)
-        # video_features = self.compress(video_features)
-        # x = torch.cat((pooled_output, video_features), 1)
-        # x = torch.tanh(x)
-
-        # map context to 3x768 and concatenate it with video feature
-        # video_context = video_features[:, :15, :]
-        # video_features = video_features[:, 15:, :]
-        # video_context = video_context.view(video_context.shape[0], -1)  # flatten context of the three crops
-        # video_features = video_features.view(video_features.shape[0], -1)  # flatten features of the three crops
-        # video_context = self.compress(video_context)
-        # x = torch.cat((pooled_output, video_features, video_context), 1)
-
-
-        # use fuser layer
         x = self.dropout(x)
         x = self.fuser(x)
         x = torch.tanh(x)
         x = self.dropout(x)
         logits = self.classifier(x)
-
-
-        # use self-attention layer
-        # features = torch.cat([pooled_output.unsqueeze(1), video_features], dim=1)
-        # features += self.modal_embed
-        # features, _ = self.att1(features, thw_shape=None)
-        # features, _ = self.att2(features, thw_shape=None)
-        # features, _ = self.att3(features, thw_shape=None)
-        # features = self.norm(features)
-        # features = features[:, 0, :]
-        # logits = self.classifier(features)
 
         loss = None
         if labels is not None:
@@ -183,48 +119,10 @@ class RobertaForSequenceClassificationWithVideo(RobertaPreTrainedModel):
         )
         self.dropout = nn.Dropout(classifier_dropout)
 
-        # --------------------------------------------------------------
-        # map context and video feature into 3x768
-        # self.compress = nn.Linear(config.hidden_size * 18, config.hidden_size * 3)  # compress video feature from 18 to 3
-        # self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)
-
-        # map context to 3x768 and concatenate it with video feature
-        # self.compress = nn.Linear(config.hidden_size * 15, config.hidden_size)  # compress video feature from 18 to 3
-        # self.fuser = nn.Linear(config.hidden_size * 5, config.hidden_size)  # use three crops + context
-
-        # flatten context or video features
-        # self.fuser = nn.Linear(config.hidden_size * 2, config.hidden_size)  # only use center crop
-        self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)  # use three crops
-        # self.fuser = nn.Linear(config.hidden_size * 19, config.hidden_size)  # use context and video crops
-
-        # use self-attention layer
-        # self.modal_embed = nn.Parameter(torch.zeros(1, 4, 768))
-        # norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        # self.att1 = MultiScaleBlock(
-        #     dim=768,
-        #     dim_out=768,
-        #     num_heads=8,
-        #     mlp_ratio=4.0,
-        #     qkv_bias=True,
-        #     drop_rate=0.0,
-        #     drop_path=0.1,
-        #     norm_layer=norm_layer,
-        #     kernel_q=[1, 1, 1],
-        #     kernel_kv=[1, 1, 1],
-        #     stride_q=[1, 1, 1],
-        #     stride_kv=[1, 1, 1],
-        #     mode="conv",
-        #     has_cls_embed=False,
-        #     pool_first=False,
-        # )
-        # self.att2 = copy.deepcopy(self.att1)
-        # self.att3 = copy.deepcopy(self.att1)
-        # self.norm = norm_layer(768)
-        # --------------------------------------------------------------
+        self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)
 
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -262,42 +160,14 @@ class RobertaForSequenceClassificationWithVideo(RobertaPreTrainedModel):
         )
         pooled_output = outputs[1]
 
-        # No video context
-        video_features = video_features.view(video_features.shape[0], -1)  # flatten features of the three crops
+        video_features = video_features.view(video_features.shape[0], -1)
         x = torch.cat((pooled_output, video_features), 1)
 
-        # map context and video feature into 3x768
-        # video_features = video_features.view(video_features.shape[0], -1)  # flatten features of the three crops
-        # video_features = self.dropout(video_features)
-        # video_features = self.compress(video_features)
-        # x = torch.cat((pooled_output, video_features), 1)
-        # x = torch.tanh(x)
-
-        # map context to 3x768 and concatenate it with video feature
-        # video_context = video_features[:, :15, :]
-        # video_features = video_features[:, 15:, :]
-        # video_context = video_context.view(video_context.shape[0], -1)  # flatten context of the three crops
-        # video_features = video_features.view(video_features.shape[0], -1)  # flatten features of the three crops
-        # video_context = self.compress(video_context)
-        # x = torch.cat((pooled_output, video_features, video_context), 1)
-
-        # use fuser layer
         x = self.dropout(x)
         x = self.fuser(x)
         x = torch.tanh(x)
         x = self.dropout(x)
         logits = self.classifier(x)
-
-        # use self-attention layer
-        # features = torch.cat([pooled_output.unsqueeze(1), video_features], dim=1)
-        # features += self.modal_embed
-        # features, _ = self.att1(features, thw_shape=None)
-        # features, _ = self.att2(features, thw_shape=None)
-        # features, _ = self.att3(features, thw_shape=None)
-        # features = self.norm(features)
-        # # features = features[:, 0, :]
-        # features = features.mean(dim=1)
-        # logits = self.classifier(features)
 
         loss = None
         if labels is not None:
@@ -333,6 +203,7 @@ class RobertaForSequenceClassificationWithVideo(RobertaPreTrainedModel):
             attentions=outputs.attentions,
         )
 
+
 class LSTMPredictor(nn.Module):
 
     def __init__(self, input_dim, hidden_dim, num_labels):
@@ -354,34 +225,4 @@ class LSTMPredictor(nn.Module):
         # print(logits)
         loss_fct = CrossEntropyLoss()
         loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-        return loss, logits
-
-class Deduction_simple(nn.Module):
-
-    def __init__(self, input_dim, num_labels):
-        super(Deduction_simple, self).__init__()
-        self.num_labels = num_labels
-        self.fc1 = nn.Linear(input_dim, num_labels * (num_labels - 1))
-
-    def forward(self, inputs, labels):
-        logits = self.fc1(inputs)
-        logits = logits.view(-1, self.num_labels, self.num_labels - 1)
-        # print(logits)
-        loss_fct = CrossEntropyLoss()
-        loss = loss_fct(logits, labels.view(-1, self.num_labels - 1))
-        return loss, logits
-
-class Deduction_simple_paired(nn.Module):
-
-    def __init__(self, input_dim, num_labels):
-        super(Deduction_simple_paired, self).__init__()
-        self.num_labels = num_labels
-        self.fc1 = nn.Linear(input_dim, num_labels)
-
-    def forward(self, inputs, labels):
-        logits = self.fc1(inputs)
-        logits = logits.view(-1, self.num_labels)
-        # print(logits)
-        loss_fct = CrossEntropyLoss()
-        loss = loss_fct(logits, labels.view(-1))
         return loss, logits

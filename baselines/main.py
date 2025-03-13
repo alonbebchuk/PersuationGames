@@ -15,7 +15,7 @@ from tqdm import trange, tqdm
 
 from transformers import *
 
-from read_data import *
+from read_dataset import load_werewolf_dataset
 from models import *
 
 
@@ -59,7 +59,6 @@ parser.add_argument("--context_size", type=int, default=3, help="size of the con
 parser.add_argument("--avalon", action="store_true", help="Testing on avalon data as well")
 parser.add_argument("--video", action="store_true", help="Using video features")
 parser.add_argument("--video_path", type=str, default='data/Ego4D/video_feature', help="Path to video features")
-parser.add_argument("--deduction", action="store_true", help="Deduction prediction")
 parser.add_argument("--use_cache", action="store_true", help="Use cached utterance encoding")
 args = parser.parse_args()
 
@@ -225,7 +224,6 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
 	nb_eval_steps = 0
 	preds = None
 	labels = None
-	utterance_encodings = None
 	model.eval()
 
 	for batch in tqdm(eval_dataloader, desc="Evaluating"):
@@ -236,28 +234,21 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
 			if args.video:
 				inputs = {"input_ids": batch[0], "attention_mask": batch[1], "video_features": batch[3]}
 				outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"],
-				                video_features=inputs["video_features"], output_hidden_states=args.deduction)
+				                video_features=inputs["video_features"])
 			else:
 				inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-				outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"], output_hidden_states=args.deduction)
+				outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
 
-			# logger.info(outputs)
 			logits, tmp_eval_loss = outputs['logits'], outputs['loss']
-			if args.deduction:
-				hidden_states = outputs['hidden_states'][-1][:][0]
 			eval_loss += tmp_eval_loss.item()
 		nb_eval_steps += 1
 
 		if preds is None:
 			preds = logits.detach().cpu().numpy()
 			labels = target.detach().cpu().numpy()
-			if args.deduction:
-				utterance_encodings = hidden_states.detach().cpu().numpy()
 		else:
 			preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
 			labels = np.append(labels, target.detach().cpu().numpy(), axis=0)
-			if args.deduction:
-				utterance_encodings = np.append(utterance_encodings, hidden_states.detach().cpu().numpy(), axis=0)
 
 	eval_loss /= nb_eval_steps
 
@@ -285,7 +276,7 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
 			'loss': eval_loss
 		}
 	logger.info(results['f1'])
-	return results, utterance_encodings
+	return results, None
 
 
 def log_predictions(splits, preds):
@@ -313,151 +304,6 @@ def log_predictions(splits, preds):
 			df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
 	
 
-def train_deduction(model, train_dataset, dev_dataset):
-	optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-	tb_writer = SummaryWriter(args.output_dir)
-
-	train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-
-	t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-
-	logger.info("***** Running training *****")
-	logger.info("  Num examples = %d", len(train_dataset))
-	logger.info("  Num Epochs = %d", args.num_train_epochs)
-	logger.info(
-		"  Total train batch size (w. parallel, accumulation) = %d",
-		args.batch_size
-		* args.gradient_accumulation_steps),
-	logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
-	logger.info("  Total optimization steps = %d", t_total)
-
-	global_step = 0
-	wait_step = 0
-	epochs_trained = 0
-	steps_trained_in_current_epoch = 0
-	best_f1 = 0
-	tr_loss, logging_loss = 0.0, 0.0
-
-	model.zero_grad()
-
-	train_iterator = trange(epochs_trained, int(args.num_train_epochs), desc='Epoch')
-
-	for epoch in train_iterator:
-		epoch_iterator = tqdm(train_dataloader, desc="Iteration")
-		for step, batch in enumerate(epoch_iterator):
-			if steps_trained_in_current_epoch > 0:
-				steps_trained_in_current_epoch -= 1
-				continue
-			model.train()
-
-			batch = tuple(t.to(args.device) for t in batch)
-			# print(epoch, batch)
-			loss, logits = model(inputs=batch[0], labels=batch[1])
-			if args.gradient_accumulation_steps > 1:
-				loss = loss / args.gradient_accumulation_steps
-
-			loss.backward()
-			tr_loss += loss.item()
-
-			if (step + 1) % args.gradient_accumulation_steps == 0:
-				optimizer.step()
-				model.zero_grad()
-				global_step += 1
-
-				if args.logging_steps > 0 and global_step % args.logging_steps == 0:
-					tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
-					logging_loss = tr_loss
-
-					# logger.info("logging train info!!!")
-					# logger.info("*")
-
-		# eval and save the best model based on dev set after each epoch
-		if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
-
-			results = evaluate_deduction(model, dev_dataset, mode="dev", prefix=str(global_step))
-			for i, (key, value) in enumerate(results.items()):
-				tb_writer.add_scalar("eval_{}".format(key), value, epoch)
-			# tb_writer.add_scalar("lr", scheduler.get_last_lr()[0], epoch)
-			# tb_writer.add_scalar("loss", tr_loss - logging_loss, epoch)
-			logging_loss = tr_loss
-			logger.info(f"{results}")
-			if results['f1'] >= best_f1:
-				best_f1 = results['f1']
-				wait_step = 0
-				# output_dir = os.path.join(args.output_dir, "best")
-				# if not os.path.exists(output_dir):
-				# 	os.makedirs(output_dir)
-				# logger.info("Saving best model to %s", output_dir)
-				# model_to_save = (
-				# 	model.module if hasattr(model, "module") else model)
-				# model_to_save.save_pretrained(output_dir)
-				# torch.save(args, os.path.join(output_dir, "training_args.bin"))
-			else:
-				wait_step += 1
-				if wait_step >= args.early_stopping_patience:
-					train_iterator.close()
-					break
-
-	tb_writer.close()
-	return global_step, tr_loss / global_step, best_f1
-
-
-def evaluate_deduction(model, eval_dataset=None, mode='dev', prefix=''):
-	eval_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, shuffle=False)
-
-	logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
-	logger.info("  Num examples = %d", len(eval_dataset))
-	logger.info("  Batch size = %d", args.eval_batch_size)
-
-	eval_loss = 0.0
-	nb_eval_steps = 0
-	preds = None
-	labels = None
-	model.eval()
-
-	for batch in tqdm(eval_dataloader, desc="Evaluating"):
-		batch = tuple(t.to(args.device) for t in batch)
-
-		with torch.no_grad():
-			loss, logits = model(inputs=batch[0], labels=batch[1])
-			eval_loss += loss.item()
-		nb_eval_steps += 1
-
-		if preds is None:
-			preds = logits.detach().cpu().numpy()
-			labels = batch[1].detach().cpu().numpy()
-		else:
-			preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-			labels = np.append(labels, batch[1].detach().cpu().numpy(), axis=0)
-
-	eval_loss /= nb_eval_steps
-	# print(preds.shape)
-	preds = np.argmax(preds, axis=1)
-
-	labels = labels.tolist()
-	preds = preds.tolist()
-	# utterance_encodings = utterance_encodings.tolist()
-
-	assert len(labels) == len(preds), f"{len(labels)}, {len(preds)}"
-
-	if prefix == 'final':
-		results = {
-			'f1': f1_score(y_true=labels, y_pred=preds),
-			'precision': precision_score(y_true=labels, y_pred=preds),
-			'recall': recall_score(y_true=labels, y_pred=preds),
-			'accuracy': accuracy_score(y_true=labels, y_pred=preds),
-			'report': classification_report(y_true=labels, y_pred=preds),
-			'preds': preds,
-		}
-	else:
-		results={
-			'f1': f1_score(y_true=labels, y_pred=preds),
-			'loss': eval_loss
-		}
-	logger.info(results)
-	return results
-
-
 def main():
 	logger.info("------NEW RUN-----")
 
@@ -478,16 +324,6 @@ def main():
 	averaged_f1 = {'dev': 0.0, 'test': 0.0, 'avalon': 0.0}
 	splits = []
 
-	utterance_encodings = {'dev': None, 'test': None, 'train': None}
-	cache_file = os.path.join(args.output_dir, 'deduction', 'cached_encoding.npz')
-	if args.deduction and args.use_cache:
-		if os.path.exists(cache_file):
-			utterance_encodings = np.load(cache_file)
-			args.no_eval = True
-			args.no_test = True
-		else:
-			args.use_cache = False
-
 	if not args.no_eval:
 		splits.append('dev')
 	if not args.no_test:
@@ -496,8 +332,6 @@ def main():
 		splits.append('avalon')
 
 	for strategy in Strategies:
-		if args.deduction and args.use_cache:
-			break
 		logger.info(f"Training for strategy {strategy}")
 		args.output_dir = os.path.join(output_dir, strategy)
 		if not os.path.exists(args.output_dir):
@@ -519,8 +353,8 @@ def main():
 			tokenizer.add_tokens(['<end of text>'], special_tokens=True)
 			model.resize_token_embeddings(len(tokenizer))
 
-		train_dataset = read_data(args, logger, strategy, tokenizer, mode='train')
-		dev_dataset = read_data(args, logger, strategy, tokenizer, mode='dev')
+		train_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='train')
+		dev_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='dev')
 
 		if not args.no_train:
 			global_step, tr_loss, best_f1 = train(model, train_dataset, dev_dataset)
@@ -531,7 +365,7 @@ def main():
 		model.to(args.device)
 
 		if not args.no_eval:
-			results, utterance_encoding = evaluate(model, dev_dataset, mode="dev", prefix='final')
+			results, _ = evaluate(model, dev_dataset, mode="dev", prefix='final')
 			filename = os.path.join(args.output_dir, 'results_dev.json')
 			with open(filename, 'w') as f:
 				json.dump(results, f)
@@ -541,12 +375,6 @@ def main():
 			else:
 				all_correct['dev'] = [x + y for x,y in zip(all_correct['dev'], results['correct'])]
 
-			if args.deduction:
-				if utterance_encodings['dev'] is None:
-					utterance_encodings['dev'] = utterance_encoding
-				else:
-					utterance_encodings['dev'] = np.sum([utterance_encodings['dev'], utterance_encoding], axis=0)
-
 			preds['dev'][strategy] = results['preds']
 			results.pop('correct')
 			results.pop('preds')
@@ -554,8 +382,8 @@ def main():
 			all_result['dev'][strategy] = results
 
 		if not args.no_test:
-			test_dataset = read_data(args, logger, strategy, tokenizer, mode='test')
-			results, utterance_encoding = evaluate(model, test_dataset, mode="test", prefix='final')
+			test_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='test')
+			results, _ = evaluate(model, test_dataset, mode="test", prefix='final')
 			filename = os.path.join(args.output_dir, 'results_test.json')
 			with open(filename, 'w') as f:
 				json.dump(results, f)
@@ -565,12 +393,6 @@ def main():
 			else:
 				all_correct['test'] = [x + y for x,y in zip(all_correct['test'], results['correct'])]
 
-			if args.deduction:
-				if utterance_encodings['test'] is None:
-					utterance_encodings['test'] = utterance_encoding
-				else:
-					utterance_encodings['test'] = np.sum([utterance_encodings['test'], utterance_encoding], axis=0)
-
 			preds['test'][strategy] = results['preds']
 			results.pop('correct')
 			results.pop('preds')
@@ -578,8 +400,8 @@ def main():
 			all_result['test'][strategy] = results
 
 		if args.avalon:
-			avalon_dataset = read_data(args, logger, strategy, tokenizer, mode='avalon')
-			results, utterance_encoding = evaluate(model, avalon_dataset, mode="avalon", prefix='final')
+			avalon_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='avalon')
+			results, _ = evaluate(model, avalon_dataset, mode="avalon", prefix='final')
 			filename = os.path.join(args.output_dir, 'results_avalon.json')
 			with open(filename, 'w') as f:
 				json.dump(results, f)
@@ -595,12 +417,6 @@ def main():
 			averaged_f1['avalon'] += results['f1']
 			all_result['avalon'][strategy] = results
 
-		if args.deduction and not args.use_cache:
-			results, utterance_encoding = evaluate(model, train_dataset, mode="train", prefix='final')
-			if utterance_encodings['train'] is None:
-				utterance_encodings['train'] = utterance_encoding
-			else:
-				utterance_encodings['train'] = np.sum([utterance_encodings['train'], utterance_encoding], axis=0)
 	args.output_dir = output_dir
 	# log predictions.csv
 	log_predictions(splits, preds)
@@ -632,33 +448,6 @@ def main():
 				json.dump(result[strategy], f, indent=4)
 				f.write(report)
 				f.write("\n")
-
-	if args.deduction:
-		args.output_dir = os.path.join(output_dir, "deduction")
-		if not os.path.exists(args.output_dir):
-			os.makedirs(args.output_dir)
-
-		if not args.use_cache:
-			for split in ("train", "dev", "test"):
-				utterance_encodings[split] /= len(Strategies)
-			np.savez(cache_file, **utterance_encodings)
-
-		random.seed(args.seed)
-		np.random.seed(args.seed)
-		torch.manual_seed(args.seed)
-		if len(args.gpu) > 0:
-			torch.cuda.manual_seed_all(args.seed)
-
-		model = LSTMPredictor(789, 789, 2)
-		model.to(args.device)
-
-		dataset = {}
-		for split in ("train", "dev", "test"):
-			dataset[split] = read_data_for_deduction(args, logger, split, utterance_encodings[split].tolist())
-
-		train_deduction(model, dataset["train"], dataset["dev"])
-		evaluate_deduction(model, dataset["dev"], mode="dev", prefix="final")
-		evaluate_deduction(model, dataset["test"], mode="test", prefix="final")
 
 
 if __name__ == "__main__":
