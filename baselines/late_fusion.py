@@ -96,10 +96,9 @@ def aggregate(text_pred_dir, video_pred_dir):
     for v_seed, t_seed in zip(video_seed, text_seed):
         all_text_correct, all_video_correct, all_final_correct = None, None, None
         for strategy in ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]:
-            video_pred_path = os.path.join(video_pred_dir, v_seed, strategy, 'avalon_logits_test.npy')
-            text_pred_path = os.path.join(text_pred_dir, t_seed, strategy, 'avalon_logits_test.npy')
-            label_path = os.path.join(text_pred_dir, t_seed, strategy, 'avalon_labels_test.npy')
-            # text_f1, video_f1, final_f1 = calculate_metric(text_pred_path=text_pred_path, video_pred_path=video_pred_path, label_path=label_path, strategy=strategy)
+            video_pred_path = os.path.join(video_pred_dir, v_seed, strategy, 'logits_test.npy')
+            text_pred_path = os.path.join(text_pred_dir, t_seed, strategy, 'logits_test.npy')
+            label_path = os.path.join(text_pred_dir, t_seed, strategy, 'labels_test.npy')
             text_f1, video_f1, final_f1, text_correct, video_correct, final_correct\
                 = calculate_metric_2(text_pred_path=text_pred_path, video_pred_path=video_pred_path, label_path=label_path, strategy=strategy)
             all_text_f1.append(text_f1)
