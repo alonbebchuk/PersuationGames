@@ -1,28 +1,24 @@
-from typing import Dict, List, Any, DefaultDict
 import argparse
 import json
 import numpy as np
 import os
 from collections import defaultdict
+from typing import Any, DefaultDict,Dict, List
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--result_dir", default='out', type=str)
-parser.add_argument("--model", default='bert', type=str)
-parser.add_argument("--batch_size", nargs='+', default=('8', '16'), type=str)
-parser.add_argument("--learning_rate", nargs='+', default=('1e-5', '3e-5', '5e-5'), type=str)
-parser.add_argument("--seed", default=None, type=str)
-parser.add_argument("--context_size", nargs='+', default=(1, 3, 5, 7, 9), type=int)
-parser.add_argument("--suffix", default='', type=str)
+parser.add_argument("--dataset", nargs='+', type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
+parser.add_argument("--model_type", type=str, help="Model type, bert or roberta")
+parser.add_argument("--video", action="store_true", help="Using video features")
+parser.add_argument("--context_size", type=int, help="Size of the context")
+parser.add_argument("--batch_size", type=int, help="Batch size")
+parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
+parser.add_argument("--seed", type=int, help="Random seed for initialization")
+parser.add_argument("--output_dir", type=str, help="Output directory")
 parser.add_argument("--analyze_context", action="store_true")
 parser.add_argument("--get_best_hp", action="store_true")
 parser.add_argument("--get_result", action="store_true")
 args = parser.parse_args()
-
-if args.model == 'bert':
-    args.seed = args.seed or ['13', '42', '87']
-elif args.model == 'roberta':
-    args.seed = args.seed or ['227', '624', '817']
 
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
@@ -59,10 +55,10 @@ def analyze_context():
 
 def get_best_hp():
     best_results = None
-    with open(os.path.join(args.result_dir, args.model, f"final_results{args.suffix}.txt"), "a") as f_final:
+    with open(os.path.join(args.result_dir, args.model, f"final_results.txt"), "a") as f_final:
         for bs in args.batch_size:
             for lr in args.learning_rate:
-                id = f"{bs}_{lr}{args.suffix}"
+                id = f"{bs}_{lr}"
                 f_final.write(f"{id}'s dev result:\n")
                 result_dir = os.path.join(args.result_dir, args.model, id)
                 results = get_result(result_dir, "dev")

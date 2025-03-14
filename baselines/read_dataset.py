@@ -1,13 +1,12 @@
-import os
+import json
 import numpy as np
+import os
 import requests
 import shutil
 import torch
 import zipfile
-import json
-from logging import Logger
 from torch.utils.data import TensorDataset
-from typing import Dict, Any
+from typing import Any, Dict
 
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
@@ -51,7 +50,7 @@ def download_and_extract_features(dataset: str) -> str:
 
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(dataset_dir)
-    
+
     os.remove(zip_path)
     macosx_folder = os.path.join(dataset_dir, '__MACOSX')
     shutil.rmtree(macosx_folder)
@@ -113,7 +112,8 @@ def load_werewolf_dataset(args: Any, strategy: str, tokenizer: Any, mode: str) -
                 tokens = [tokenizer.cls_token]
                 if args.context_size != 0:
                     for cxt in context[-args.context_size:]:
-                        tokens += cxt + [tokenizer.sep_token]
+                        tokens += cxt + ['<end of text>']
+                    tokens += [tokenizer.sep_token]
                 context.append(tokenizer.tokenize(utterance))
                 tokens += context[-1] + [tokenizer.sep_token]
 

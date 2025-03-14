@@ -1,11 +1,10 @@
-from typing import Optional, Tuple, Union
-
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss, BCEWithLogitsLoss
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.bert.modeling_bert import BertModel, BertPreTrainedModel
 from transformers.models.roberta.modeling_roberta import RobertaModel, RobertaPreTrainedModel
+from typing import Optional, Tuple, Union
 
 
 class BertForSequenceClassificationWithVideo(BertPreTrainedModel):
@@ -15,9 +14,7 @@ class BertForSequenceClassificationWithVideo(BertPreTrainedModel):
         self.config = config
 
         self.bert = BertModel(config)
-        classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
-        )
+        classifier_dropout = config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         self.dropout = nn.Dropout(classifier_dropout)
 
         self.fuser = nn.Linear(config.hidden_size * 4, config.hidden_size)
@@ -202,27 +199,3 @@ class RobertaForSequenceClassificationWithVideo(RobertaPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
-
-class LSTMPredictor(nn.Module):
-
-    def __init__(self, input_dim, hidden_dim, num_labels):
-        super(LSTMPredictor, self).__init__()
-        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=1, batch_first=True)
-        self.num_labels = num_labels
-        self.classifier = nn.Linear(hidden_dim, num_labels)
-        self.hidden_dim = hidden_dim
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.2)
-
-    def forward(self, inputs, labels):
-        output, (hn, cn) = self.lstm(inputs)
-        # print(inputs.shape, output.shape, hn.shape)
-        x = hn.view(-1, self.hidden_dim)
-        x = self.relu(x)
-        x = self.dropout(x)
-        logits = self.classifier(x)
-        # print(logits)
-        loss_fct = CrossEntropyLoss()
-        loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-        return loss, logits

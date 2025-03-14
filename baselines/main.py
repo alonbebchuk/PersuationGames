@@ -7,40 +7,42 @@ import pandas as pd
 import random
 import torch
 from collections import defaultdict
+from models import BertForSequenceClassificationWithVideo, RobertaForSequenceClassificationWithVideo
+from read_dataset import load_werewolf_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
-from transformers import AdamW, BertForSequenceClassification, BertTokenizer, RobertaForSequenceClassification, RobertaTokenizer, get_linear_schedule_with_warmup
-from models import BertForSequenceClassificationWithVideo, RobertaForSequenceClassificationWithVideo
-from read_dataset import load_werewolf_dataset
+from transformers import AdamW, BertForSequenceClassification, BertTokenizer, get_linear_schedule_with_warmup, RobertaForSequenceClassification, RobertaTokenizer
 
 
 MODEL_CLASSES = {"bert": BertForSequenceClassification, "roberta": RobertaForSequenceClassification}
-MODEL_WITH_VIDEO_CLASSES = {"bert": BertForSequenceClassificationWithVideo, "roberta": RobertaForSequenceClassificationWithVideo}
+MODEL_NAME = {"bert": "bert-base-uncased", "roberta": "roberta-base"}
+MODEL_VIDEO_CLASSES = {"bert": BertForSequenceClassificationWithVideo, "roberta": RobertaForSequenceClassificationWithVideo}
 TOKENIZER_CLASSES = {"bert": BertTokenizer, "roberta": RobertaTokenizer}
 
 logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_type", default='bert', type=str)
-parser.add_argument("--model_name", default='bert-base-uncased', type=str)
-parser.add_argument("--output_dir", default='out', type=str)
-parser.add_argument("--log_dir", default='log.txt', type=str)
-parser.add_argument("--pretrained_dir", default='', type=str, help='Specify the path of checkpoints if you want to finetune a model')
+parser.add_argument("--dataset", nargs='+', type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
+parser.add_argument("--model_type", type=str, help="Model type, bert or roberta")
+parser.add_argument("--video", action="store_true", help="Using video features")
+parser.add_argument("--context_size", type=int, help="Size of the context")
+parser.add_argument("--batch_size", type=int, help="Batch size")
+parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
+parser.add_argument("--seed", type=int, help="Random seed for initialization")
+parser.add_argument("--output_dir", type=str, help="Output directory")
+# not used
 parser.add_argument("--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory")
-parser.add_argument("--dataset", nargs='+', default=('Ego4D',), type=str, help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--gpu", default='0', type=str, help='id(s) for CUDA_VISIBLE_DEVICES')
 parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
 parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the dev set.")
 parser.add_argument("--no_test", action="store_true", help="Whether to run predictions on the test set.")
 parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation every epoch.")
 parser.add_argument("--evaluate_period", default=1, type=int, help="evaluate every * epochs.")
-parser.add_argument("--batch_size", default=16, type=int)
 parser.add_argument('--eval_batch_size', default=128, type=int)
 parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
 parser.add_argument("--max_seq_length", default=256, type=int)
-parser.add_argument("--learning_rate", default=3e-5, type=float, help="The initial learning rate for Adam.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
@@ -48,13 +50,9 @@ parser.add_argument("--num_train_epochs", default=10, type=int, help="Total numb
 parser.add_argument('--warmup_steps', default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument('--early_stopping_patience', default=10000, type=int, help="Patience for early stopping.")
 parser.add_argument('--logging_steps', default=40, type=int, help="Log every X updates steps.")
-parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
-parser.add_argument("--context_size", type=int, default=3, help="size of the context")
-parser.add_argument("--video", action="store_true", help="Using video features")
-parser.add_argument("--video_path", type=str, default='data/Ego4D/video_feature', help="Path to video features")
+
 args = parser.parse_args()
 
-# os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args.device = device
@@ -67,7 +65,7 @@ formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s -   %(message)
 if not os.path.exists(args.output_dir):
     os.makedirs(args.output_dir)
 
-fh = log.FileHandler(os.path.join(args.output_dir, args.log_dir))
+fh = log.FileHandler(os.path.join(args.output_dir, 'log.txt'))
 fh.setLevel(log.INFO)
 fh.setFormatter(formatter)
 
@@ -78,7 +76,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-Strategies = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
+STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 
 def train(model, train_dataset, dev_dataset):
@@ -105,7 +103,7 @@ def train(model, train_dataset, dev_dataset):
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info("  Total train batch size (w. parallel, accumulation) = %d", args.batch_size * args.gradient_accumulation_steps),
+    logger.info("  Total train batch size (w. parallel, accumulation) = %d", args.batch_size * args.gradient_accumulation_steps)
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", t_total)
 
@@ -128,16 +126,14 @@ def train(model, train_dataset, dev_dataset):
                 continue
             model.train()
 
-            # frames = read_video(args.dataset, 'train', batch[-1].numpy().tolist())
             batch = tuple(t.to(args.device) for t in batch)
-            # print(epoch, batch)
             target = batch[2]
             if args.video:
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1], "video_features": batch[3]}
                 outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"], video_features=inputs["video_features"])
             else:
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"], )
+                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
 
             loss = outputs['loss']
 
@@ -162,27 +158,10 @@ def train(model, train_dataset, dev_dataset):
                     logger.info("logging train info!!!")
                     logger.info("*")
 
-                # if args.save_steps > 0 and global_step % args.save_steps == 0:
-                # 	output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
-                # 	if not os.path.exists(output_dir):
-                # 		os.makedirs(output_dir)
-                # 	model_to_save = (model.module if hasattr(model, "module") else model)
-                # 	model_to_save.save_pretrained(output_dir)
-                # 	torch.save(args, os.path.join(output_dir, "training_args.bin"))
-                # 	logger.info("Saving model checkpoint to %s", output_dir)
-                #
-                # 	torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                # 	torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                # 	logger.info("Saving optimizer and scheduler states to %s", output_dir)
-
-        # eval and save the best model based on dev set after each epoch
         if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
-
-            results, _ = evaluate(model, dev_dataset, mode="dev", prefix=str(global_step))
-            for i, (key, value) in enumerate(results.items()):
+            results = evaluate(model, dev_dataset, mode="dev", prefix=str(global_step))
+            for key, value in results.items():
                 tb_writer.add_scalar("eval_{}".format(key), value, epoch)
-            # tb_writer.add_scalar("lr", scheduler.get_last_lr()[0], epoch)
-            # tb_writer.add_scalar("loss", tr_loss - logging_loss, epoch)
             logging_loss = tr_loss
             logger.info(f"{results}")
             if results['f1'] >= best_f1:
@@ -225,8 +204,7 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
             target = batch[2]
             if args.video:
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1], "video_features": batch[3]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"],
-                                video_features=inputs["video_features"])
+                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"], video_features=inputs["video_features"])
             else:
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
                 outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
@@ -248,7 +226,6 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
 
     labels = labels.tolist()
     preds = preds.tolist()
-    # utterance_encodings = utterance_encodings.tolist()
 
     assert len(labels) == len(preds), f"{len(labels)}, {len(preds)}"
     correct = [1 if pred == label else 0 for pred, label in zip(preds, labels)]
@@ -265,10 +242,10 @@ def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
     else:
         results = {
             'f1': f1_score(y_true=labels, y_pred=preds),
-            'loss': eval_loss
+            'loss': eval_loss,
         }
     logger.info(results['f1'])
-    return results, None
+    return results
 
 
 def log_predictions(splits, preds):
@@ -279,11 +256,10 @@ def log_predictions(splits, preds):
             id = -1
             data = defaultdict(list)
             for game in games:
-                # print(f"{game['EG_ID']}_{game['Game_ID']}")
                 for record in game['Dialogue']:
                     id += 1
                     pred = []
-                    for strategy in Strategies:
+                    for strategy in STRATEGIES:
                         if preds[split][strategy][id] == 1:
                             pred.append(strategy)
                     if len(pred) == 0:
@@ -291,7 +267,6 @@ def log_predictions(splits, preds):
                     for key, val in record.items():
                         data[key].append(val)
                     data['prediction'].append(pred)
-            # print(f"{record['Rec_Id']},{record['speaker']},{record['timestamp']},{record['utterance']},{record['annotation']},{pred}")
             df = pd.DataFrame.from_dict(data)
             df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
 
@@ -307,10 +282,10 @@ def main():
     all_correct = {'dev': None, 'test': None}
     output_dir = args.output_dir
     if args.video:
-        model_class = MODEL_WITH_VIDEO_CLASSES[args.model_type]
+        model_class = MODEL_VIDEO_CLASSES[args.model_type]
     else:
         model_class = MODEL_CLASSES[args.model_type]
-
+    model_name = MODEL_NAME[args.model_type]
     tokenizer_class = TOKENIZER_CLASSES[args.model_type]
     preds = {'dev': {}, 'test': {}}
     averaged_f1 = {'dev': 0.0, 'test': 0.0}
@@ -321,7 +296,7 @@ def main():
     if not args.no_test:
         splits.append('test')
 
-    for strategy in Strategies:
+    for strategy in STRATEGIES:
         logger.info(f"Training for strategy {strategy}")
         args.output_dir = os.path.join(output_dir, strategy)
         if not os.path.exists(args.output_dir):
@@ -332,13 +307,9 @@ def main():
         torch.manual_seed(args.seed)
         if len(args.gpu) > 0:
             torch.cuda.manual_seed_all(args.seed)
-        if len(args.pretrained_dir) == 0:
-            model = model_class.from_pretrained(args.model_name, num_labels=2)
-        else:
-            model = model_class.from_pretrained(os.path.join(args.pretrained_dir, strategy, 'best'))
-            logger.info(f"Load pretrained checkpoints from {os.path.join(args.pretrained_dir, strategy, 'best')}")
+        model = model_class.from_pretrained(model_name, num_labels=2)
         model.to(args.device)
-        tokenizer = tokenizer_class.from_pretrained(args.model_name)
+        tokenizer = tokenizer_class.from_pretrained(model_name)
         if args.context_size != 0:
             tokenizer.add_tokens(['<end of text>'], special_tokens=True)
             model.resize_token_embeddings(len(tokenizer))
@@ -355,7 +326,7 @@ def main():
         model.to(args.device)
 
         if not args.no_eval:
-            results, _ = evaluate(model, dev_dataset, mode="dev", prefix='final')
+            results = evaluate(model, dev_dataset, mode="dev", prefix='final')
             filename = os.path.join(args.output_dir, 'results_dev.json')
             with open(filename, 'w') as f:
                 json.dump(results, f)
@@ -373,7 +344,7 @@ def main():
 
         if not args.no_test:
             test_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='test')
-            results, _ = evaluate(model, test_dataset, mode="test", prefix='final')
+            results = evaluate(model, test_dataset, mode="test", prefix='final')
             filename = os.path.join(args.output_dir, 'results_test.json')
             with open(filename, 'w') as f:
                 json.dump(results, f)
@@ -390,30 +361,28 @@ def main():
             all_result['test'][strategy] = results
 
     args.output_dir = output_dir
-    # log predictions.csv
     log_predictions(splits, preds)
 
     for split in splits:
         result = all_result[split]
         cnt = 0
         for x in all_correct[split]:
-            if x == len(Strategies):
+            if x == len(STRATEGIES):
                 cnt += 1
         result['overall_accuracy'] = cnt / len(all_correct[split])
-        result['averaged_f1'] = averaged_f1[split] / len(Strategies)
+        result['averaged_f1'] = averaged_f1[split] / len(STRATEGIES)
 
         filename = os.path.join(args.output_dir, f'results_{split}.json')
         with open(filename, 'w') as f:
             json.dump(result, f)
 
-        # beautiful print results
         with open(os.path.join(args.output_dir, f"results_{split}_beaut.txt"), 'w') as f:
 
-            for strategy in Strategies:
+            for strategy in STRATEGIES:
                 f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
             f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
 
-            for strategy in Strategies:
+            for strategy in STRATEGIES:
                 report = result[strategy]['report']
                 result[strategy].pop('report')
                 f.write(f"{strategy}\n")

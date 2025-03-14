@@ -3,7 +3,7 @@ import logging
 import random
 import torch
 from collections import namedtuple
-from read_dataset import load_werewolf_dataset, STRATEGIES, SUPPORTED_MODES, SUPPORTED_DATASETS
+from read_dataset import load_werewolf_dataset, STRATEGIES, SUPPORTED_DATASETS, SUPPORTED_MODES
 from transformers import AutoTokenizer
 
 
@@ -11,10 +11,10 @@ def test_load_werewolf_dataset():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    Args = namedtuple(
-        'Args', ['dataset', 'context_size', 'max_seq_length', 'video'])
+    Args = namedtuple('Args', ['dataset', 'context_size', 'max_seq_length', 'video'])
 
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer.add_tokens(['<end of text>'], special_tokens=True)
 
     dataset_combinations = []
     for i in range(1, len(SUPPORTED_DATASETS) + 1):
