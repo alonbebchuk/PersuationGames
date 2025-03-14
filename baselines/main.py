@@ -343,8 +343,8 @@ def main():
             tokenizer.add_tokens(['<end of text>'], special_tokens=True)
             model.resize_token_embeddings(len(tokenizer))
 
-        train_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='train')
-        dev_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='dev')
+        train_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='train')
+        dev_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='dev')
 
         if not args.no_train:
             global_step, tr_loss, best_f1 = train(model, train_dataset, dev_dataset)
@@ -372,7 +372,7 @@ def main():
             all_result['dev'][strategy] = results
 
         if not args.no_test:
-            test_dataset = load_werewolf_dataset(args, logger, strategy, tokenizer, mode='test')
+            test_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='test')
             results, _ = evaluate(model, test_dataset, mode="test", prefix='final')
             filename = os.path.join(args.output_dir, 'results_test.json')
             with open(filename, 'w') as f:
