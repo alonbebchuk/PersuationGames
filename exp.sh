@@ -16,3 +16,9 @@ do
     done
   done
 done
+
+# This experiment can be executed in Google Colab by running the following commands:
+# %cd /content/drive/MyDrive
+# !git clone https://github.com/alonbebchuk/PersuationGames.git
+# %cd /content/drive/MyDrive/PersuationGames
+# !bash exp.sh
