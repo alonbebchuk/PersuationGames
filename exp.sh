@@ -6,7 +6,7 @@ do
     do
       for seed in $(if [ "$model_type" = "bert" ]; then echo "13 42 87"; else echo "227 624 817"; fi)
       do
-        python baselines/main.py \
+        python3 baselines/main.py \
           --dataset ${dataset} \
           --model_type ${model_type} \
           $(if [ "$video" = "True" ]; then echo "--video"; fi) \

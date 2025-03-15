@@ -54,6 +54,7 @@ parser.add_argument('--logging_steps', default=40, type=int, help="Log every X u
 
 args = parser.parse_args()
 
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args.device = device
