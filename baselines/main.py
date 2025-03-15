@@ -32,11 +32,11 @@ parser.add_argument("--batch_size", type=int, help="Batch size")
 parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
 parser.add_argument("--output_dir", type=str, help="Output directory")
-# not used
 parser.add_argument("--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory")
+# not used
 parser.add_argument("--gpu", default='0', type=str, help='id(s) for CUDA_VISIBLE_DEVICES')
 parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
-parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the dev set.")
+parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the val set.")
 parser.add_argument("--no_test", action="store_true", help="Whether to run predictions on the test set.")
 parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation every epoch.")
 parser.add_argument("--evaluate_period", default=1, type=int, help="evaluate every * epochs.")
@@ -79,7 +79,7 @@ logger.addHandler(fh)
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 
-def train(model, train_dataset, dev_dataset):
+def train(model, train_dataset, val_dataset):
     tb_writer = SummaryWriter(args.output_dir)
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -159,7 +159,7 @@ def train(model, train_dataset, dev_dataset):
                     logger.info("*")
 
         if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
-            results = evaluate(model, dev_dataset, mode="dev", prefix=str(global_step))
+            results = evaluate(model, val_dataset, mode="val", prefix=str(global_step))
             for key, value in results.items():
                 tb_writer.add_scalar("eval_{}".format(key), value, epoch)
             logging_loss = tr_loss
@@ -184,7 +184,7 @@ def train(model, train_dataset, dev_dataset):
     return global_step, tr_loss / global_step, best_f1
 
 
-def evaluate(model, eval_dataset=None, mode='dev', prefix=''):
+def evaluate(model, eval_dataset=None, mode='val', prefix=''):
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, shuffle=False)
 
     logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
@@ -278,8 +278,8 @@ def main():
     logger.info("random seed %s", args.seed)
     logger.info("Training/evaluation parameters %s", args)
 
-    all_result = {'dev': {}, 'test': {}}
-    all_correct = {'dev': None, 'test': None}
+    all_result = {'val': {}, 'test': {}}
+    all_correct = {'val': None, 'test': None}
     output_dir = args.output_dir
     if args.video:
         model_class = MODEL_VIDEO_CLASSES[args.model_type]
@@ -287,12 +287,12 @@ def main():
         model_class = MODEL_CLASSES[args.model_type]
     model_name = MODEL_NAME[args.model_type]
     tokenizer_class = TOKENIZER_CLASSES[args.model_type]
-    preds = {'dev': {}, 'test': {}}
-    averaged_f1 = {'dev': 0.0, 'test': 0.0}
+    preds = {'val': {}, 'test': {}}
+    averaged_f1 = {'val': 0.0, 'test': 0.0}
     splits = []
 
     if not args.no_eval:
-        splits.append('dev')
+        splits.append('val')
     if not args.no_test:
         splits.append('test')
 
@@ -315,10 +315,10 @@ def main():
             model.resize_token_embeddings(len(tokenizer))
 
         train_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='train')
-        dev_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='dev')
+        val_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='val')
 
         if not args.no_train:
-            global_step, tr_loss, best_f1 = train(model, train_dataset, dev_dataset)
+            global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset)
             logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
             logger.info("Reloading best model")
 
@@ -326,21 +326,21 @@ def main():
         model.to(args.device)
 
         if not args.no_eval:
-            results = evaluate(model, dev_dataset, mode="dev", prefix='final')
-            filename = os.path.join(args.output_dir, 'results_dev.json')
+            results = evaluate(model, val_dataset, mode="val", prefix='final')
+            filename = os.path.join(args.output_dir, 'results_val.json')
             with open(filename, 'w') as f:
                 json.dump(results, f)
 
-            if all_correct['dev'] is None:
-                all_correct['dev'] = results['correct']
+            if all_correct['val'] is None:
+                all_correct['val'] = results['correct']
             else:
-                all_correct['dev'] = [x + y for x, y in zip(all_correct['dev'], results['correct'])]
+                all_correct['val'] = [x + y for x, y in zip(all_correct['val'], results['correct'])]
 
-            preds['dev'][strategy] = results['preds']
+            preds['val'][strategy] = results['preds']
             results.pop('correct')
             results.pop('preds')
-            averaged_f1['dev'] += results['f1']
-            all_result['dev'][strategy] = results
+            averaged_f1['val'] += results['f1']
+            all_result['val'][strategy] = results
 
         if not args.no_test:
             test_dataset = load_werewolf_dataset(args, strategy, tokenizer, mode='test')

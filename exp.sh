@@ -12,7 +12,7 @@ do
           do
             for seed in $(if [ "$model_type" = "bert" ]; then echo "13 42 87"; else echo "227 624 817"; fi)
             do
-              python3 baselines/main.py \
+              "/mnt/c/Users/user/anaconda3/envs/PersuasionGames/python.exe" baselines/main.py \
               --dataset ${dataset} \
               --model_type ${model_type} \
               $(if [ "$video" = "True" ]; then echo "--video"; fi) \
@@ -20,7 +20,8 @@ do
               --batch_size ${batch_size} \
               --learning_rate ${learning_rate} \
               --seed ${seed} \
-              --output_dir out/${dataset}/${model_type}$(if [ "$video" = "True" ]; then echo "_video"; fi)/${batch_size}_${learning_rate}_${context_size}/${seed}
+              --output_dir out/${dataset}/${model_type}$(if [ "$video" = "True" ]; then echo "_video"; fi)/${batch_size}_${learning_rate}_${context_size}/${seed} \
+              --overwrite_output_dir
             done
           done
         done

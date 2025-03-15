@@ -1,0 +1,16 @@
+03/15/2025 12:20:45 - INFO - __main__ -   ------NEW RUN-----
+03/15/2025 12:20:45 - INFO - __main__ -   device: cpu, gpu: 0
+03/15/2025 12:20:45 - INFO - __main__ -   random seed 13
+03/15/2025 12:20:45 - INFO - __main__ -   Training/evaluation parameters Namespace(adam_epsilon=1e-08, batch_size=8, context_size=0, dataset=['Ego4D'], device=device(type='cpu'), early_stopping_patience=10000, eval_batch_size=128, evaluate_period=1, gpu='0', gradient_accumulation_steps=1, learning_rate=1e-05, logging_steps=40, max_grad_norm=1.0, max_seq_length=256, model_type='bert', no_eval=False, no_evaluate_during_training=False, no_test=False, no_train=False, num_train_epochs=10, output_dir='out/Ego4D/bert/8_1e-5_0/13', overwrite_output_dir=False, seed=13, video=False, warmup_steps=0, weight_decay=0.0)
+03/15/2025 12:20:45 - INFO - __main__ -   Training for strategy Identity Declaration
+03/15/2025 12:25:58 - INFO - __main__ -   ------NEW RUN-----
+03/15/2025 12:25:58 - INFO - __main__ -   device: cpu, gpu: 0
+03/15/2025 12:25:58 - INFO - __main__ -   random seed 13
+03/15/2025 12:25:58 - INFO - __main__ -   Training/evaluation parameters Namespace(adam_epsilon=1e-08, batch_size=8, context_size=0, dataset=['Ego4D'], device=device(type='cpu'), early_stopping_patience=10000, eval_batch_size=128, evaluate_period=1, gpu='0', gradient_accumulation_steps=1, learning_rate=1e-05, logging_steps=40, max_grad_norm=1.0, max_seq_length=256, model_type='bert', no_eval=False, no_evaluate_during_training=False, no_test=False, no_train=False, num_train_epochs=10, output_dir='out/Ego4D/bert/8_1e-5_0/13', overwrite_output_dir=True, seed=13, video=False, warmup_steps=0, weight_decay=0.0)
+03/15/2025 12:25:58 - INFO - __main__ -   Training for strategy Identity Declaration
+03/15/2025 12:26:01 - INFO - __main__ -   ***** Running training *****
+03/15/2025 12:26:01 - INFO - __main__ -     Num examples = 3746
+03/15/2025 12:26:01 - INFO - __main__ -     Num Epochs = 10
+03/15/2025 12:26:01 - INFO - __main__ -     Total train batch size (w. parallel, accumulation) = 8
+03/15/2025 12:26:01 - INFO - __main__ -     Gradient Accumulation steps = 1
+03/15/2025 12:26:01 - INFO - __main__ -     Total optimization steps = 4690
