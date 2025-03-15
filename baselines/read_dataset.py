@@ -1,10 +1,7 @@
 import json
-import numpy as np
 import os
 import requests
-import shutil
 import torch
-import zipfile
 from torch.utils.data import TensorDataset
 from typing import Any, Dict
 
@@ -23,41 +20,6 @@ SUPPORTED_DATASETS = ['Ego4D', 'Youtube']
 SUPPORTED_MODES = ['test', 'train', 'val']
 
 
-def get_feature_filename(dataset: str, game: Dict[str, Any]) -> str:
-    if dataset == 'Ego4D':
-        return f'{game["EG_ID"]}_{game["Game_ID"]}.npy'
-    else:
-        return f'{game["video_name"]}_{game["Game_ID"]}.npy'
-
-
-def download_and_extract_features(dataset: str) -> str:
-    dataset_dir = os.path.join('data', dataset)
-    features_dir = os.path.join(dataset_dir, 'mvit_24_k400_features')
-    zip_path = os.path.join(dataset_dir, f'mvit_24_k400_features.zip')
-
-    if os.path.exists(features_dir):
-        return features_dir
-
-    if not os.path.exists(zip_path):
-        feature_zip_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/mvit_24_k400_features.zip"
-        os.makedirs(dataset_dir, exist_ok=True)
-
-        response = requests.get(feature_zip_url)
-        response.raise_for_status()
-
-        with open(zip_path, 'wb') as f:
-            f.write(response.content)
-
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(dataset_dir)
-
-    os.remove(zip_path)
-    macosx_folder = os.path.join(dataset_dir, '__MACOSX')
-    shutil.rmtree(macosx_folder)
-
-    return features_dir
-
-
 def load_werewolf_dataset(args: Any, strategy: str, tokenizer: Any, mode: str) -> TensorDataset:
     if strategy not in STRATEGIES:
         raise ValueError(f"Invalid strategy: {strategy}. Must be one of {STRATEGIES}")
@@ -65,7 +27,7 @@ def load_werewolf_dataset(args: Any, strategy: str, tokenizer: Any, mode: str) -
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Invalid mode: {mode}. Must be one of {SUPPORTED_MODES}")
 
-    all_input_ids, all_input_mask, all_label, all_video_features = [], [], [], []
+    all_input_ids, all_input_mask, all_label = [], [], []
 
     if isinstance(args.dataset, str):
         args.dataset = (args.dataset,)
@@ -89,20 +51,11 @@ def load_werewolf_dataset(args: Any, strategy: str, tokenizer: Any, mode: str) -
             with open(local_path, 'w') as f:
                 json.dump(games, f)
 
-        if args.video:
-            features_dir = download_and_extract_features(dataset)
-
         id = 0
 
         for game in games:
             dialogues = game["Dialogue"]
             context = [[]] * args.context_size
-
-            video_features = None
-            if args.video:
-                feature_file = get_feature_filename(dataset, game)
-                feature_path = os.path.join(features_dir, feature_file)
-                video_features = np.load(feature_path)
 
             for record in dialogues:
                 id += 1
@@ -136,22 +89,9 @@ def load_werewolf_dataset(args: Any, strategy: str, tokenizer: Any, mode: str) -
                 all_input_mask.append(input_mask)
                 all_label.append(label)
 
-                if args.video:
-                    video_feature = video_features[record["Rec_Id"] - 1]
-                    all_video_features.append(video_feature)
+    all_input_ids_array = torch.tensor(all_input_ids, dtype=torch.long)
+    all_input_mask_array = torch.tensor(all_input_mask, dtype=torch.long)
+    all_label_array = torch.tensor(all_label, dtype=torch.long)
 
-    all_input_ids_array = np.array(all_input_ids, dtype=np.int64)
-    all_input_mask_array = np.array(all_input_mask, dtype=np.int64)
-    all_label_array = np.array(all_label, dtype=np.int64)
-
-    if args.video:
-        all_video_features_array = np.stack(all_video_features)
-        Dataset = TensorDataset(torch.tensor(all_input_ids_array, dtype=torch.long),
-                                torch.tensor(all_input_mask_array, dtype=torch.long),
-                                torch.tensor(all_label_array, dtype=torch.long),
-                                torch.tensor(all_video_features_array, dtype=torch.float32))
-    else:
-        Dataset = TensorDataset(torch.tensor(all_input_ids_array, dtype=torch.long),
-                                torch.tensor(all_input_mask_array, dtype=torch.long),
-                                torch.tensor(all_label_array, dtype=torch.long))
+    Dataset = TensorDataset(all_input_ids_array, all_input_mask_array, all_label_array)
     return Dataset

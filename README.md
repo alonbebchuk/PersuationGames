@@ -30,7 +30,6 @@ Then you can use `utils.py` to gather the results and have the best performing h
 Optional parameters:
 - dataset (only _Ego4D_ and _Youtube_ available now, or both as _"Ego4D Youtube"_)
 - model_type (only _bert_ and _roberta_ available now, please be careful if you are adding other models)
-- video (controlling whether to use video features)
 - context_size
 - batch_size
 - learning_rate

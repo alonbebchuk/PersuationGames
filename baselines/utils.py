@@ -9,7 +9,6 @@ from typing import Any, DefaultDict,Dict, List
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", nargs='+', type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
 parser.add_argument("--model_type", type=str, help="Model type, bert or roberta")
-parser.add_argument("--video", action="store_true", help="Using video features")
 parser.add_argument("--context_size", type=int, help="Size of the context")
 parser.add_argument("--batch_size", type=int, help="Batch size")
 parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
