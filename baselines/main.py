@@ -10,10 +10,11 @@ from collections import defaultdict
 from models import BertForSequenceClassificationWithVideo, RobertaForSequenceClassificationWithVideo
 from read_dataset import load_werewolf_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
+from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
-from transformers import AdamW, BertForSequenceClassification, BertTokenizer, get_linear_schedule_with_warmup, RobertaForSequenceClassification, RobertaTokenizer
+from transformers import BertForSequenceClassification, BertTokenizer, get_linear_schedule_with_warmup, RobertaForSequenceClassification, RobertaTokenizer
 
 
 MODEL_CLASSES = {"bert": BertForSequenceClassification, "roberta": RobertaForSequenceClassification}
