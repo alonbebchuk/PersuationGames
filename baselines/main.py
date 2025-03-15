@@ -7,7 +7,6 @@ import pandas as pd
 import random
 import torch
 from collections import defaultdict
-from models import BertForSequenceClassificationWithVideo, RobertaForSequenceClassificationWithVideo
 from read_dataset import load_werewolf_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.optim import AdamW
@@ -19,7 +18,6 @@ from transformers import BertForSequenceClassification, BertTokenizer, get_linea
 
 MODEL_CLASSES = {"bert": BertForSequenceClassification, "roberta": RobertaForSequenceClassification}
 MODEL_NAME = {"bert": "bert-base-uncased", "roberta": "roberta-base"}
-MODEL_VIDEO_CLASSES = {"bert": BertForSequenceClassificationWithVideo, "roberta": RobertaForSequenceClassificationWithVideo}
 TOKENIZER_CLASSES = {"bert": BertTokenizer, "roberta": RobertaTokenizer}
 
 logger = log.getLogger(__name__)
@@ -27,7 +25,6 @@ logger = log.getLogger(__name__)
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", nargs='+', type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
 parser.add_argument("--model_type", type=str, help="Model type, bert or roberta")
-parser.add_argument("--video", action="store_true", help="Using video features")
 parser.add_argument("--context_size", type=int, help="Size of the context")
 parser.add_argument("--batch_size", type=int, help="Batch size")
 parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
@@ -130,12 +127,8 @@ def train(model, train_dataset, val_dataset):
 
             batch = tuple(t.to(args.device) for t in batch)
             target = batch[2]
-            if args.video:
-                inputs = {"input_ids": batch[0], "attention_mask": batch[1], "video_features": batch[3]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"], video_features=inputs["video_features"])
-            else:
-                inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
+            outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
 
             loss = outputs['loss']
 
@@ -204,12 +197,8 @@ def evaluate(model, eval_dataset=None, mode='val', prefix=''):
 
         with torch.no_grad():
             target = batch[2]
-            if args.video:
-                inputs = {"input_ids": batch[0], "attention_mask": batch[1], "video_features": batch[3]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"], video_features=inputs["video_features"])
-            else:
-                inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-                outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
+            outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
 
             logits, tmp_eval_loss = outputs['logits'], outputs['loss']
             eval_loss += tmp_eval_loss.item()
@@ -283,10 +272,7 @@ def main():
     all_result = {'val': {}, 'test': {}}
     all_correct = {'val': None, 'test': None}
     output_dir = args.output_dir
-    if args.video:
-        model_class = MODEL_VIDEO_CLASSES[args.model_type]
-    else:
-        model_class = MODEL_CLASSES[args.model_type]
+    model_class = MODEL_CLASSES[args.model_type]
     model_name = MODEL_NAME[args.model_type]
     tokenizer_class = TOKENIZER_CLASSES[args.model_type]
     preds = {'val': {}, 'test': {}}
