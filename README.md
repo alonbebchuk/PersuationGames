@@ -13,25 +13,22 @@
 ### Install dependency
 ```
 conda env create -f env.yaml
-conda activate PersuasionGames
+conda activate persuasion_games
 ```
 
 
 ### Run
 
 #### Run multiple Experiments
-We provide script `exp.sh` to run hyperparameter search.
+We provide script `exp_bert.sh` to run bert baselines experiment.
 
-Then you can use `utils.py` to gather the results and have the best performing hyper-parameters according to their dev results.
+Then you can use `utils.py` to gather the results.
 
 #### Single Run
 `python3 baselines/main.py --output_dir out`
 
 Optional parameters:
 - dataset (only _Ego4D_ and _Youtube_ available now)
-- context_size
-- batch_size
-- learning_rate
 - seed
 
 ### Result

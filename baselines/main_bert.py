@@ -16,13 +16,12 @@ from flax.training.common_utils import onehot
 from functools import partial
 from read_dataset import load_werewolf_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 from transformers import FlaxBertForSequenceClassification, BertTokenizer
-from typing import Callable
+from typing import Callable, List, Dict, Any, Tuple, Optional
 
-# Simplified model definitions for BERT only
 MODEL_CLASS = FlaxBertForSequenceClassification
 MODEL_NAME = "bert-base-uncased"
 TOKENIZER_CLASS = BertTokenizer
@@ -79,14 +78,14 @@ logger.addHandler(fh)
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 class TrainState(train_state.TrainState):
-    """Train state with an Optax optimizer."""
     logits_fn: Callable = struct.field(pytree_node=False)
     loss_fn: Callable = struct.field(pytree_node=False)
 
-def create_train_state(model, learning_rate_fn, weight_decay: float = 0.0):
-    """Create initial training state."""
-    
-    # Decay mask function from flax_bert.py
+def create_train_state(
+    model: FlaxBertForSequenceClassification,
+    learning_rate_fn: Callable[[int], float],
+    weight_decay: float = 0.0
+) -> TrainState:
     def decay_mask_fn(params):
         flat_params = traverse_util.flatten_dict(params)
         layer_norm_candidates = ["layernorm", "layer_norm", "ln"]
@@ -120,8 +119,13 @@ def create_train_state(model, learning_rate_fn, weight_decay: float = 0.0):
         loss_fn=cross_entropy_loss,
     )
 
-def create_learning_rate_fn(train_ds_size: int, train_batch_size: int, num_train_epochs: int, num_warmup_steps: int, learning_rate: float):
-    """Returns a linear warmup, linear_decay learning rate function."""
+def create_learning_rate_fn(
+    train_ds_size: int,
+    train_batch_size: int,
+    num_train_epochs: int,
+    num_warmup_steps: int,
+    learning_rate: float
+) -> Callable[[int], float]:
     steps_per_epoch = train_ds_size // train_batch_size
     num_train_steps = steps_per_epoch * num_train_epochs
     warmup_fn = optax.linear_schedule(init_value=0.0, end_value=learning_rate, transition_steps=num_warmup_steps)
@@ -133,7 +137,11 @@ def create_learning_rate_fn(train_ds_size: int, train_batch_size: int, num_train
     schedule_fn = optax.join_schedules(schedules=[warmup_fn, decay_fn], boundaries=[num_warmup_steps])
     return schedule_fn
 
-def train(model, train_dataset, val_dataset):
+def train(
+    model: FlaxBertForSequenceClassification,
+    train_dataset: Dataset,
+    val_dataset: Dataset
+) -> Tuple[int, float, float]:
     tb_writer = SummaryWriter(args.output_dir)
 
     train_dataloader = DataLoader(
@@ -145,7 +153,6 @@ def train(model, train_dataset, val_dataset):
         persistent_workers=True if args.num_workers > 0 else False
     )
     
-    # Create learning rate function
     learning_rate_fn = create_learning_rate_fn(
         len(train_dataset),
         args.batch_size,
@@ -154,7 +161,6 @@ def train(model, train_dataset, val_dataset):
         args.learning_rate
     )
 
-    # Create and replicate train state
     state = create_train_state(model, learning_rate_fn, weight_decay=args.weight_decay)
     state = replicate(state)
 
@@ -230,7 +236,12 @@ def train(model, train_dataset, val_dataset):
     return global_step, tr_loss / global_step, best_f1
 
 
-def evaluate(model, eval_dataset=None, mode='val', prefix=''):
+def evaluate(
+    model: FlaxBertForSequenceClassification,
+    eval_dataset: Optional[Dataset] = None,
+    mode: str = 'val',
+    prefix: str = ''
+) -> Dict[str, Any]:
     eval_dataloader = DataLoader(
         eval_dataset, 
         batch_size=args.eval_batch_size, 
@@ -294,7 +305,10 @@ def evaluate(model, eval_dataset=None, mode='val', prefix=''):
     return results
 
 
-def log_predictions(splits, preds):
+def log_predictions(
+    splits: List[str],
+    preds: Dict[str, Dict[str, List[int]]]
+) -> None:
     for dataset in args.dataset:
         for split in splits:
             with open(os.path.join('data', dataset, f'{split}.json'), 'r') as f:
@@ -317,8 +331,13 @@ def log_predictions(splits, preds):
             df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
 
 
-def process_strategy(strategy, output_dir, train_dataset=None, val_dataset=None, test_dataset=None):
-    """Process a single strategy in parallel"""
+def process_strategy(
+    strategy: str,
+    output_dir: str,
+    train_dataset: Optional[Dataset] = None,
+    val_dataset: Optional[Dataset] = None,
+    test_dataset: Optional[Dataset] = None
+) -> Tuple[str, Dict[str, Dict[str, Any]]]:
     logger.info(f"Training for strategy {strategy}")
     strategy_output_dir = os.path.join(output_dir, strategy)
     if not os.path.exists(strategy_output_dir):
@@ -356,10 +375,8 @@ def process_strategy(strategy, output_dir, train_dataset=None, val_dataset=None,
 
     return strategy, results
 
-def main():
-    # Set multiprocessing start method
-    if __name__ == "__main__":
-        mp.set_start_method('spawn', force=True)
+def main() -> None:
+    mp.set_start_method('spawn', force=True)
     
     logger.info("------NEW RUN-----")
     logger.info("random seed %s", args.seed)
@@ -378,7 +395,6 @@ def main():
     if not args.no_test:
         splits.append('test')
 
-    # Load datasets for all strategies first
     strategy_datasets = {}
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = {
@@ -387,7 +403,6 @@ def main():
             'test': load_werewolf_dataset(args, strategy, TOKENIZER_CLASS.from_pretrained(MODEL_NAME), mode='test') if not args.no_test else None
         }
 
-    # Process strategies in parallel
     with mp.Pool(processes=min(len(STRATEGIES), mp.cpu_count())) as pool:
         process_fn = partial(process_strategy, output_dir=output_dir)
         results = []
@@ -395,7 +410,6 @@ def main():
             datasets = strategy_datasets[strategy]
             results.append(pool.apply_async(process_fn, (strategy, datasets['train'], datasets['val'], datasets['test'])))
         
-        # Collect results
         for result in results:
             strategy, strategy_results = result.get()
             if 'val' in strategy_results:

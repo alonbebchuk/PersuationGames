@@ -3,7 +3,7 @@ import json
 import numpy as np
 import os
 from collections import defaultdict
-from typing import Any, DefaultDict,Dict, List
+from typing import Any, DefaultDict, Dict, List
 
 
 parser = argparse.ArgumentParser()
@@ -43,7 +43,7 @@ def get_result(result_dir: str, mode: str) -> DefaultDict[str, List[float]]:
     return results
 
 
-def analyze_context():
+def analyze_context() -> None:
     with open(os.path.join(args.result_dir, args.model, "context", "result.txt"), 'w') as f:
         for context_size in args.context_size:
             f.write(f"context_size {context_size}: \n")
@@ -52,7 +52,7 @@ def analyze_context():
             write_metrics(f, results)
 
 
-def get_best_hp():
+def get_best_hp() -> None:
     best_results = None
     with open(os.path.join(args.result_dir, args.model, f"final_results.txt"), "a") as f_final:
         for bs in args.batch_size:

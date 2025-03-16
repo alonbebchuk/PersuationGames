@@ -4,6 +4,7 @@ import requests
 import torch
 from torch.utils.data import TensorDataset
 from typing import Any
+from transformers import PreTrainedTokenizer
 
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
@@ -20,7 +21,12 @@ SUPPORTED_DATASETS = ['Ego4D', 'Youtube']
 SUPPORTED_MODES = ['test', 'train', 'val']
 
 
-def load_werewolf_dataset(args: Any, strategy: str, tokenizer: Any, mode: str) -> TensorDataset:
+def load_werewolf_dataset(
+    args: Any, 
+    strategy: str, 
+    tokenizer: PreTrainedTokenizer, 
+    mode: str
+) -> TensorDataset:
     if strategy not in STRATEGIES:
         raise ValueError(f"Invalid strategy: {strategy}. Must be one of {STRATEGIES}")
 
