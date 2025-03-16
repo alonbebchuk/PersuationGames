@@ -94,7 +94,6 @@ def load_werewolf_dataset(
                 all_input_mask.append(input_mask)
                 all_label.append(label)
 
-    # Create HuggingFace Dataset
     dataset_dict = {
         'input_ids': np.array(all_input_ids, dtype=np.int32),
         'attention_mask': np.array(all_input_mask, dtype=np.int32),

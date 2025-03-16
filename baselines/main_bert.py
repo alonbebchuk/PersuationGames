@@ -115,7 +115,7 @@ def create_train_state(
         mask=decay_mask_fn,
     )
 
-    def cross_entropy_loss(logits, labels):
+    def cross_entropy_loss(logits: jnp.ndarray, labels: jnp.ndarray) -> jnp.ndarray:
         xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
         return jnp.mean(xentropy)
 
@@ -153,6 +153,21 @@ def collate_fn(batch: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
 def replicate_train_state(state: TrainState, devices: List[Any]) -> TrainState:
     return jax.device_put_replicated(state, devices)
 
+def get_adjusted_batch_size(original_batch_size: int, n_devices: int, name: str = "batch") -> int:
+    min_batch_size = n_devices * 2
+    global_batch_size = max(original_batch_size, min_batch_size)
+    
+    if global_batch_size != original_batch_size:
+        logger.warning(f"Adjusting {name} size from {original_batch_size} to {global_batch_size} to ensure at least 2 samples per device")
+    
+    per_device_batch_size = global_batch_size // n_devices
+    if global_batch_size % n_devices != 0:
+        adjusted_batch_size = per_device_batch_size * n_devices
+        logger.warning(f"Further adjusting {name} size from {global_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
+        global_batch_size = adjusted_batch_size
+        
+    return global_batch_size
+
 def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
@@ -164,16 +179,7 @@ def train(
     n_devices = len(devices)
     logger.info(f"Training using {n_devices} devices")
 
-    min_batch_size = n_devices * 2
-    global_batch_size = max(args.batch_size, min_batch_size)
-    if global_batch_size != args.batch_size:
-        logger.warning(f"Adjusting batch size from {args.batch_size} to {global_batch_size} to ensure at least 2 samples per device")
-    
-    per_device_batch_size = global_batch_size // n_devices
-    if global_batch_size % n_devices != 0:
-        adjusted_batch_size = per_device_batch_size * n_devices
-        logger.warning(f"Further adjusting batch size from {global_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
-        global_batch_size = adjusted_batch_size
+    global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices, "batch")
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -296,16 +302,7 @@ def evaluate(
     devices = jax.local_devices()
     n_devices = len(devices)
     
-    min_eval_batch_size = n_devices * 2
-    global_eval_batch_size = max(args.eval_batch_size, min_eval_batch_size)
-    if global_eval_batch_size != args.eval_batch_size:
-        logger.warning(f"Adjusting eval batch size from {args.eval_batch_size} to {global_eval_batch_size} to ensure at least 2 samples per device")
-    
-    per_device_batch_size = global_eval_batch_size // n_devices
-    if global_eval_batch_size % n_devices != 0:
-        adjusted_batch_size = per_device_batch_size * n_devices
-        logger.warning(f"Further adjusting eval batch size from {global_eval_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
-        global_eval_batch_size = adjusted_batch_size
+    global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices, "eval batch")
 
     eval_dataloader = DataLoader(
         eval_dataset,
@@ -410,6 +407,17 @@ def log_predictions(
             df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
 
 
+def write_json_file(data: Dict[str, Any], filepath: str) -> None:
+    with open(filepath, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def set_seeds(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    jax.random.PRNGKey(seed)
+
+
 def process_strategy(
     strategy: str,
     output_dir: str,
@@ -422,9 +430,7 @@ def process_strategy(
     if not os.path.exists(strategy_output_dir):
         os.makedirs(strategy_output_dir)
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    jax.random.PRNGKey(args.seed)
+    set_seeds(args.seed)
 
     model = MODEL_CLASS()
     results = {}
@@ -439,17 +445,55 @@ def process_strategy(
 
     if not args.no_eval and val_dataset is not None:
         results['val'] = evaluate(state, val_dataset, mode="val", prefix='final')
-        filename = os.path.join(strategy_output_dir, 'results_val.json')
-        with open(filename, 'w') as f:
-            json.dump(results['val'], f)
+        write_json_file(results['val'], os.path.join(strategy_output_dir, 'results_val.json'))
 
     if not args.no_test and test_dataset is not None:
         results['test'] = evaluate(state, test_dataset, mode="test", prefix='final')
-        filename = os.path.join(strategy_output_dir, 'results_test.json')
-        with open(filename, 'w') as f:
-            json.dump(results['test'], f)
+        write_json_file(results['test'], os.path.join(strategy_output_dir, 'results_test.json'))
 
     return strategy, results
+
+
+def load_strategy_datasets() -> Dict[str, DatasetDict]:
+    base_tokenizer = TOKENIZER_CLASS()
+    strategy_datasets = {}
+    
+    for strategy in STRATEGIES:
+        strategy_datasets[strategy] = DatasetDict()
+        if not args.no_train:
+            strategy_datasets[strategy]['train'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='train')
+        if not args.no_eval:
+            strategy_datasets[strategy]['val'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='val')
+        if not args.no_test:
+            strategy_datasets[strategy]['test'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='test')
+    
+    return strategy_datasets
+
+
+def format_results(split, all_result, all_correct, averaged_f1, output_dir):
+    result = all_result[split]
+    
+    cnt = 0
+    for x in all_correct[split]:
+        if x == len(STRATEGIES):
+            cnt += 1
+    result['overall_accuracy'] = cnt / len(all_correct[split])
+    result['averaged_f1'] = averaged_f1[split] / len(STRATEGIES)
+
+    write_json_file(result, os.path.join(output_dir, f'results_{split}.json'))
+
+    with open(os.path.join(output_dir, f"results_{split}_beaut.txt"), 'w') as f:
+        for strategy in STRATEGIES:
+            f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
+        f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
+
+        for strategy in STRATEGIES:
+            report = result[strategy]['report']
+            result[strategy].pop('report')
+            f.write(f"{strategy}\n")
+            json.dump(result[strategy], f, indent=4)
+            f.write(report)
+            f.write("\n")
 
 
 def main() -> None:
@@ -459,6 +503,8 @@ def main() -> None:
     logger.info("random seed %s", args.seed)
     logger.info("Training/evaluation parameters %s", args)
     logger.info(f"Using {args.num_workers} workers for data loading")
+
+    set_seeds(args.seed)
 
     all_result = {'val': {}, 'test': {}}
     all_correct = {'val': None, 'test': None}
@@ -472,18 +518,7 @@ def main() -> None:
     if not args.no_test:
         splits.append('test')
 
-    base_tokenizer = TOKENIZER_CLASS()
-
-    strategy_datasets = {}
-    for strategy in STRATEGIES:
-        datasets = {}
-        if not args.no_train:
-            datasets['train'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='train')
-        if not args.no_eval:
-            datasets['val'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='val')
-        if not args.no_test:
-            datasets['test'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='test')
-        strategy_datasets[strategy] = DatasetDict(datasets)
+    strategy_datasets = load_strategy_datasets()
 
     for strategy in STRATEGIES:
         datasets = strategy_datasets[strategy]
@@ -496,52 +531,23 @@ def main() -> None:
         )
         
         strategy, results = strategy_results
-        if 'val' in results:
-            all_result['val'][strategy] = results['val']
-            if all_correct['val'] is None:
-                all_correct['val'] = results['val']['correct']
-            else:
-                all_correct['val'] = [x + y for x, y in zip(all_correct['val'], results['val']['correct'])]
-            preds['val'][strategy] = results['val']['preds']
-            averaged_f1['val'] += results['val']['f1']
-
-        if 'test' in results:
-            all_result['test'][strategy] = results['test']
-            if all_correct['test'] is None:
-                all_correct['test'] = results['test']['correct']
-            else:
-                all_correct['test'] = [x + y for x, y in zip(all_correct['test'], results['test']['correct'])]
-            preds['test'][strategy] = results['test']['preds']
-            averaged_f1['test'] += results['test']['f1']
+        for split in splits:
+            if split in results:
+                all_result[split][strategy] = results[split]
+                
+                if all_correct[split] is None:
+                    all_correct[split] = results[split]['correct']
+                else:
+                    all_correct[split] = [x + y for x, y in zip(all_correct[split], results[split]['correct'])]
+                
+                preds[split][strategy] = results[split]['preds']
+                averaged_f1[split] += results[split]['f1']
 
     args.output_dir = output_dir
     log_predictions(splits, preds)
 
     for split in splits:
-        result = all_result[split]
-        cnt = 0
-        for x in all_correct[split]:
-            if x == len(STRATEGIES):
-                cnt += 1
-        result['overall_accuracy'] = cnt / len(all_correct[split])
-        result['averaged_f1'] = averaged_f1[split] / len(STRATEGIES)
-
-        filename = os.path.join(args.output_dir, f'results_{split}.json')
-        with open(filename, 'w') as f:
-            json.dump(result, f)
-
-        with open(os.path.join(args.output_dir, f"results_{split}_beaut.txt"), 'w') as f:
-            for strategy in STRATEGIES:
-                f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
-            f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
-
-            for strategy in STRATEGIES:
-                report = result[strategy]['report']
-                result[strategy].pop('report')
-                f.write(f"{strategy}\n")
-                json.dump(result[strategy], f, indent=4)
-                f.write(report)
-                f.write("\n")
+        format_results(split, all_result, all_correct, averaged_f1, args.output_dir)
 
 
 if __name__ == "__main__":
