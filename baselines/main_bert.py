@@ -11,10 +11,8 @@ import pandas as pd
 import random
 from collections import defaultdict
 from flax import struct, traverse_util
-from flax.jax_utils import replicate, unreplicate
 from flax.training import train_state
 from flax.training.common_utils import onehot
-from functools import partial
 from read_dataset import load_werewolf_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
@@ -22,10 +20,10 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 from transformers import FlaxBertForSequenceClassification, BertTokenizer
 from typing import Callable, List, Dict, Any, Tuple, Optional
+from datasets import Dataset, DatasetDict
 
-MODEL_CLASS = FlaxBertForSequenceClassification
-MODEL_NAME = "bert-base-uncased"
-TOKENIZER_CLASS = BertTokenizer
+MODEL_CLASS = lambda: FlaxBertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2)
+TOKENIZER_CLASS = lambda: BertTokenizer.from_pretrained("bert-base-uncased")
 
 logger = log.getLogger(__name__)
 
@@ -52,7 +50,8 @@ parser.add_argument("--num_train_epochs", default=10, type=int, help="Total numb
 parser.add_argument('--warmup_steps', default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument('--early_stopping_patience', default=10000, type=int, help="Patience for early stopping.")
 parser.add_argument('--logging_steps', default=40, type=int, help="Log every X updates steps.")
-parser.add_argument("--num_workers", type=int, default=min(4, mp.cpu_count()), help="Number of worker processes for data loading")
+parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
+parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster data transfer")
 
 args = parser.parse_args()
@@ -111,7 +110,7 @@ def create_train_state(
     )
 
     def cross_entropy_loss(logits, labels):
-        xentropy = optax.softmax_cross_entropy(logits=logits, onehot_labels=onehot(labels, num_classes=2))
+        xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
         return jnp.mean(xentropy)
 
     return TrainState.create(
@@ -138,6 +137,13 @@ def create_learning_rate_fn(
     return schedule_fn
 
 
+def collate_fn(batch: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
+    return {
+        'input_ids': np.array([x['input_ids'] for x in batch]),
+        'attention_mask': np.array([x['attention_mask'] for x in batch]),
+        'labels': np.array([x['labels'] for x in batch])
+    }
+
 def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
@@ -152,6 +158,8 @@ def train(
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
+        prefetch_factor=args.prefetch_factor,
+        collate_fn=collate_fn
     )
 
     learning_rate_fn = create_learning_rate_fn(
@@ -162,13 +170,13 @@ def train(
         args.learning_rate,
     )
 
+    rng = jax.random.PRNGKey(args.seed)
     state = create_train_state(model, learning_rate_fn, weight_decay=args.weight_decay)
-    state = replicate(state)
 
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info("  Total train batch size (w. parallel, accumulation) = %d", args.batch_size)
+    logger.info("  Total train batch size = %d", args.batch_size)
     logger.info("  Total optimization steps = %d", len(train_dataloader) * args.num_train_epochs)
 
     global_step = 0
@@ -182,40 +190,56 @@ def train(
 
     for epoch in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration")
-        for step, batch in enumerate(epoch_iterator):
+        for batch in epoch_iterator:
+            batch = {k: jnp.array(v) for k, v in batch.items()}
+            
             if steps_trained_in_current_epoch > 0:
                 steps_trained_in_current_epoch -= 1
                 continue
-            model.train()
 
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-            target = batch[2]
-            outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
+            rng, dropout_rng = jax.random.split(rng)
+            
+            def train_step(state, batch, dropout_rng):
+                def loss_fn(params):
+                    outputs = state.apply_fn(
+                        **{"params": params},
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                        train=True,
+                        dropout_rng=dropout_rng
+                    )
+                    return state.loss_fn(outputs.logits, batch["labels"])
 
-            loss = outputs['loss']
+                grad_fn = jax.value_and_grad(loss_fn)
+                loss, grads = grad_fn(state.params)
+                state = state.apply_gradients(grads=grads)
+                return state, loss
 
-            loss.backward()
+            # JIT compile the training step
+            train_step = jax.jit(train_step)
+
+            state, loss = train_step(state, batch, dropout_rng)
             tr_loss += loss.item()
-
-            state = unreplicate(state)
-            state = state.apply_gradients(grads=model.parameters())
-            state = replicate(state)
             global_step += 1
 
             if args.logging_steps > 0 and global_step % args.logging_steps == 0:
-                tb_writer.add_scalar("lr", learning_rate_fn(global_step), global_step)
+                current_lr = learning_rate_fn(global_step)
+                if isinstance(current_lr, jnp.ndarray):
+                    current_lr = np.array(current_lr)
+                
+                tb_writer.add_scalar("lr", current_lr, global_step)
                 tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                 logging_loss = tr_loss
-
                 logger.info("logging train info!!!")
                 logger.info("*")
 
         if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
-            results = evaluate(model, val_dataset, mode="val", prefix=str(global_step))
+            results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
             for key, value in results.items():
                 tb_writer.add_scalar("eval_{}".format(key), value, epoch)
             logging_loss = tr_loss
             logger.info(f"{results}")
+            
             if results['f1'] >= best_f1:
                 best_f1 = results['f1']
                 wait_step = 0
@@ -223,8 +247,7 @@ def train(
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
                 logger.info("Saving best model to %s", output_dir)
-                model_to_save = (model.module if hasattr(model, "module") else model)
-                model_to_save.save_pretrained(output_dir)
+                model.save_pretrained(output_dir, params=state.params)
                 with open(os.path.join(output_dir, "training_args.json"), 'w') as f:
                     json.dump(vars(args), f, indent=2)
             else:
@@ -238,7 +261,7 @@ def train(
 
 
 def evaluate(
-    model: FlaxBertForSequenceClassification,
+    state: TrainState,
     eval_dataset: Optional[Dataset] = None,
     mode: str = 'val',
     prefix: str = '',
@@ -250,6 +273,8 @@ def evaluate(
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
+        prefetch_factor=args.prefetch_factor,
+        collate_fn=collate_fn
     )
 
     logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
@@ -258,35 +283,32 @@ def evaluate(
 
     eval_loss = 0.0
     nb_eval_steps = 0
-    preds = None
-    labels = None
-    model.eval()
+    preds = []
+    labels = []
+
+    @jax.jit
+    def eval_step(params, batch):
+        outputs = state.apply_fn(
+            **{"params": params},
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            train=False
+        )
+        return outputs.loss, state.logits_fn(outputs.logits)
 
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
-        target = batch[2]
-        outputs = model(inputs['input_ids'], labels=target, attention_mask=inputs["attention_mask"])
-
-        logits, tmp_eval_loss = outputs['logits'], outputs['loss']
-        eval_loss += tmp_eval_loss.item()
+        batch = {k: jnp.array(v) for k, v in batch.items()}
+        loss, pred = eval_step(state.params, batch)
+        eval_loss += loss.item()
         nb_eval_steps += 1
-
-        if preds is None:
-            preds = logits.detach().cpu().numpy()
-            labels = target.detach().cpu().numpy()
-        else:
-            preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-            labels = np.append(labels, target.detach().cpu().numpy(), axis=0)
+        preds.extend(pred.tolist())
+        labels.extend(batch["labels"].tolist())
 
     eval_loss /= nb_eval_steps
 
-    preds = np.argmax(preds, axis=1)
-
-    labels = labels.tolist()
-    preds = preds.tolist()
-
     assert len(labels) == len(preds), f"{len(labels)}, {len(preds)}"
     correct = [1 if pred == label else 0 for pred, label in zip(preds, labels)]
+    
     if prefix == 'final':
         results = {
             'f1': f1_score(y_true=labels, y_pred=preds),
@@ -348,11 +370,7 @@ def process_strategy(
     np.random.seed(args.seed)
     jax.random.PRNGKey(args.seed)
 
-    model = MODEL_CLASS.from_pretrained(MODEL_NAME, num_labels=2)
-    tokenizer = TOKENIZER_CLASS.from_pretrained(MODEL_NAME)
-    if args.context_size != 0:
-        tokenizer.add_tokens(['<end of text>'], special_tokens=True)
-        model.resize_token_embeddings(len(tokenizer))
+    model = MODEL_CLASS()
 
     results = {}
 
@@ -397,40 +415,47 @@ def main() -> None:
     if not args.no_test:
         splits.append('test')
 
+    base_tokenizer = TOKENIZER_CLASS()
+
     strategy_datasets = {}
     for strategy in STRATEGIES:
-        strategy_datasets[strategy] = {
-            'train': load_werewolf_dataset(args, strategy, TOKENIZER_CLASS.from_pretrained(MODEL_NAME), mode='train') if not args.no_train else None,
-            'val': load_werewolf_dataset(args, strategy, TOKENIZER_CLASS.from_pretrained(MODEL_NAME), mode='val') if not args.no_eval else None,
-            'test': load_werewolf_dataset(args, strategy, TOKENIZER_CLASS.from_pretrained(MODEL_NAME), mode='test') if not args.no_test else None
-        }
+        datasets = {}
+        if not args.no_train:
+            datasets['train'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='train')
+        if not args.no_eval:
+            datasets['val'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='val')
+        if not args.no_test:
+            datasets['test'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='test')
+        strategy_datasets[strategy] = DatasetDict(datasets)
 
-    with mp.Pool(processes=min(len(STRATEGIES), mp.cpu_count())) as pool:
-        process_fn = partial(process_strategy, output_dir=output_dir)
-        results = []
-        for strategy in STRATEGIES:
-            datasets = strategy_datasets[strategy]
-            results.append(pool.apply_async(process_fn, (strategy, datasets['train'], datasets['val'], datasets['test'])))
+    for strategy in STRATEGIES:
+        datasets = strategy_datasets[strategy]
+        strategy_results = process_strategy(
+            strategy,
+            output_dir,
+            datasets.get('train'),
+            datasets.get('val'),
+            datasets.get('test')
+        )
+        
+        strategy, results = strategy_results
+        if 'val' in results:
+            all_result['val'][strategy] = results['val']
+            if all_correct['val'] is None:
+                all_correct['val'] = results['val']['correct']
+            else:
+                all_correct['val'] = [x + y for x, y in zip(all_correct['val'], results['val']['correct'])]
+            preds['val'][strategy] = results['val']['preds']
+            averaged_f1['val'] += results['val']['f1']
 
-        for result in results:
-            strategy, strategy_results = result.get()
-            if 'val' in strategy_results:
-                all_result['val'][strategy] = strategy_results['val']
-                if all_correct['val'] is None:
-                    all_correct['val'] = strategy_results['val']['correct']
-                else:
-                    all_correct['val'] = [x + y for x, y in zip(all_correct['val'], strategy_results['val']['correct'])]
-                preds['val'][strategy] = strategy_results['val']['preds']
-                averaged_f1['val'] += strategy_results['val']['f1']
-
-            if 'test' in strategy_results:
-                all_result['test'][strategy] = strategy_results['test']
-                if all_correct['test'] is None:
-                    all_correct['test'] = strategy_results['test']['correct']
-                else:
-                    all_correct['test'] = [x + y for x, y in zip(all_correct['test'], strategy_results['test']['correct'])]
-                preds['test'][strategy] = strategy_results['test']['preds']
-                averaged_f1['test'] += strategy_results['test']['f1']
+        if 'test' in results:
+            all_result['test'][strategy] = results['test']
+            if all_correct['test'] is None:
+                all_correct['test'] = results['test']['correct']
+            else:
+                all_correct['test'] = [x + y for x, y in zip(all_correct['test'], results['test']['correct'])]
+            preds['test'][strategy] = results['test']['preds']
+            averaged_f1['test'] += results['test']['f1']
 
     args.output_dir = output_dir
     log_predictions(splits, preds)

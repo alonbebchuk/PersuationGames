@@ -1,8 +1,8 @@
 import json
 import os
 import requests
-import torch
-from torch.utils.data import TensorDataset
+from datasets import Dataset
+import numpy as np
 from typing import Any
 from transformers import PreTrainedTokenizer
 
@@ -26,7 +26,7 @@ def load_werewolf_dataset(
     strategy: str,
     tokenizer: PreTrainedTokenizer,
     mode: str,
-) -> TensorDataset:
+) -> Dataset:
     if strategy not in STRATEGIES:
         raise ValueError(f"Invalid strategy: {strategy}. Must be one of {STRATEGIES}")
 
@@ -58,7 +58,6 @@ def load_werewolf_dataset(
                 json.dump(games, f)
 
         id = 0
-
         for game in games:
             dialogues = game["Dialogue"]
             context = [[]] * args.context_size
@@ -71,7 +70,7 @@ def load_werewolf_dataset(
                 tokens = [tokenizer.cls_token]
                 if args.context_size != 0:
                     for cxt in context[-args.context_size:]:
-                        tokens += cxt + ['<end of text>']
+                        tokens += cxt + ["[unused0]"]
                     tokens += [tokenizer.sep_token]
                 context.append(tokenizer.tokenize(utterance))
                 tokens += context[-1] + [tokenizer.sep_token]
@@ -95,9 +94,11 @@ def load_werewolf_dataset(
                 all_input_mask.append(input_mask)
                 all_label.append(label)
 
-    all_input_ids_array = torch.tensor(all_input_ids, dtype=torch.long)
-    all_input_mask_array = torch.tensor(all_input_mask, dtype=torch.long)
-    all_label_array = torch.tensor(all_label, dtype=torch.long)
-
-    Dataset = TensorDataset(all_input_ids_array, all_input_mask_array, all_label_array)
-    return Dataset
+    # Create HuggingFace Dataset
+    dataset_dict = {
+        'input_ids': np.array(all_input_ids, dtype=np.int32),
+        'attention_mask': np.array(all_input_mask, dtype=np.int32),
+        'labels': np.array(all_label, dtype=np.int32)
+    }
+    
+    return Dataset.from_dict(dataset_dict)

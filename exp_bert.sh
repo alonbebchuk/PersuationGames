@@ -6,7 +6,7 @@ for dataset in Ego4D Youtube
 do
   for seed in 13 42 87
   do
-    python3 baselines/main.py \
+    python3.10 baselines/main_bert.py \
       --dataset ${dataset} \
       --context_size ${context_size} \
       --batch_size ${batch_size} \
