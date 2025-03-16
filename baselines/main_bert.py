@@ -19,7 +19,14 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 from transformers import FlaxBertForSequenceClassification, BertTokenizer
-from typing import Callable, List, Dict, Any, Tuple, Optional
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 from datasets import Dataset, DatasetDict
 
 MODEL_CLASS = lambda: FlaxBertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2)
@@ -30,18 +37,18 @@ logger = log.getLogger(__name__)
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", nargs='+', type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
 parser.add_argument("--context_size", type=int, help="Size of the context")
-parser.add_argument("--batch_size", type=int, help="Batch size")
 parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
 parser.add_argument("--output_dir", type=str, help="Output directory")
 parser.add_argument("--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory")
-# not used
 parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
 parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the val set.")
 parser.add_argument("--no_test", action="store_true", help="Whether to run predictions on the test set.")
 parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation every epoch.")
-parser.add_argument("--evaluate_period", default=1, type=int, help="evaluate every * epochs.")
-parser.add_argument('--eval_batch_size', default=128, type=int)
+parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster data transfer")
+parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+parser.add_argument("--evaluate_period", default=2, type=int, help="evaluate every * epochs.")
+parser.add_argument('--eval_batch_size', default=256, type=int)
 parser.add_argument("--max_seq_length", default=256, type=int)
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
@@ -52,7 +59,6 @@ parser.add_argument('--early_stopping_patience', default=10000, type=int, help="
 parser.add_argument('--logging_steps', default=40, type=int, help="Log every X updates steps.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
-parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster data transfer")
 
 args = parser.parse_args()
 
@@ -144,6 +150,9 @@ def collate_fn(batch: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
         'labels': np.array([x['labels'] for x in batch])
     }
 
+def replicate_train_state(state: TrainState, devices: List[Any]) -> TrainState:
+    return jax.device_put_replicated(state, devices)
+
 def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
@@ -151,20 +160,36 @@ def train(
 ) -> Tuple[int, float, float]:
     tb_writer = SummaryWriter(args.output_dir)
 
+    devices = jax.local_devices()
+    n_devices = len(devices)
+    logger.info(f"Training using {n_devices} devices")
+
+    min_batch_size = n_devices * 2
+    global_batch_size = max(args.batch_size, min_batch_size)
+    if global_batch_size != args.batch_size:
+        logger.warning(f"Adjusting batch size from {args.batch_size} to {global_batch_size} to ensure at least 2 samples per device")
+    
+    per_device_batch_size = global_batch_size // n_devices
+    if global_batch_size % n_devices != 0:
+        adjusted_batch_size = per_device_batch_size * n_devices
+        logger.warning(f"Further adjusting batch size from {global_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
+        global_batch_size = adjusted_batch_size
+
     train_dataloader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
+        batch_size=global_batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        drop_last=True
     )
 
     learning_rate_fn = create_learning_rate_fn(
         len(train_dataset),
-        args.batch_size,
+        global_batch_size,
         args.num_train_epochs,
         args.warmup_steps,
         args.learning_rate,
@@ -172,12 +197,29 @@ def train(
 
     rng = jax.random.PRNGKey(args.seed)
     state = create_train_state(model, learning_rate_fn, weight_decay=args.weight_decay)
+    
+    state = replicate_train_state(state, devices)
 
-    logger.info("***** Running training *****")
-    logger.info("  Num examples = %d", len(train_dataset))
-    logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info("  Total train batch size = %d", args.batch_size)
-    logger.info("  Total optimization steps = %d", len(train_dataloader) * args.num_train_epochs)
+    @jax.pmap
+    def train_step(
+        state: TrainState,
+        batch: Dict[str, jnp.ndarray],
+        dropout_rng: jnp.ndarray,
+    ) -> Tuple[TrainState, jnp.ndarray]:
+        def loss_fn(params: Dict[str, Any]) -> jnp.ndarray:
+            outputs = state.apply_fn(
+                **{"params": params},
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                train=True,
+                dropout_rng=dropout_rng,
+            )
+            return state.loss_fn(outputs.logits, batch["labels"])
+
+        grad_fn = jax.value_and_grad(loss_fn)
+        loss, grads = grad_fn(state.params)
+        state = state.apply_gradients(grads=grads)
+        return state, loss
 
     global_step = 0
     wait_step = 0
@@ -191,35 +233,20 @@ def train(
     for epoch in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration")
         for batch in epoch_iterator:
-            batch = {k: jnp.array(v) for k, v in batch.items()}
-            
             if steps_trained_in_current_epoch > 0:
                 steps_trained_in_current_epoch -= 1
                 continue
 
-            rng, dropout_rng = jax.random.split(rng)
+            batch = {
+                k: jnp.array(v).reshape((n_devices, -1) + v.shape[1:]) 
+                for k, v in batch.items()
+            }
             
-            def train_step(state, batch, dropout_rng):
-                def loss_fn(params):
-                    outputs = state.apply_fn(
-                        **{"params": params},
-                        input_ids=batch["input_ids"],
-                        attention_mask=batch["attention_mask"],
-                        train=True,
-                        dropout_rng=dropout_rng
-                    )
-                    return state.loss_fn(outputs.logits, batch["labels"])
+            rng, dropout_rng = jax.random.split(rng)
+            dropout_rngs = jax.random.split(dropout_rng, n_devices)
 
-                grad_fn = jax.value_and_grad(loss_fn)
-                loss, grads = grad_fn(state.params)
-                state = state.apply_gradients(grads=grads)
-                return state, loss
-
-            # JIT compile the training step
-            train_step = jax.jit(train_step)
-
-            state, loss = train_step(state, batch, dropout_rng)
-            tr_loss += loss.item()
+            state, loss = train_step(state, batch, dropout_rngs)
+            tr_loss += jnp.mean(loss).item()
             global_step += 1
 
             if args.logging_steps > 0 and global_step % args.logging_steps == 0:
@@ -266,62 +293,91 @@ def evaluate(
     mode: str = 'val',
     prefix: str = '',
 ) -> Dict[str, Any]:
+    devices = jax.local_devices()
+    n_devices = len(devices)
+    
+    min_eval_batch_size = n_devices * 2
+    global_eval_batch_size = max(args.eval_batch_size, min_eval_batch_size)
+    if global_eval_batch_size != args.eval_batch_size:
+        logger.warning(f"Adjusting eval batch size from {args.eval_batch_size} to {global_eval_batch_size} to ensure at least 2 samples per device")
+    
+    per_device_batch_size = global_eval_batch_size // n_devices
+    if global_eval_batch_size % n_devices != 0:
+        adjusted_batch_size = per_device_batch_size * n_devices
+        logger.warning(f"Further adjusting eval batch size from {global_eval_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
+        global_eval_batch_size = adjusted_batch_size
+
     eval_dataloader = DataLoader(
         eval_dataset,
-        batch_size=args.eval_batch_size,
+        batch_size=global_eval_batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        drop_last=True,
     )
 
     logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
     logger.info("  Num examples = %d", len(eval_dataset))
-    logger.info("  Batch size = %d", args.eval_batch_size)
+    logger.info("  Batch size = %d", global_eval_batch_size)
 
-    eval_loss = 0.0
-    nb_eval_steps = 0
-    preds = []
-    labels = []
+    dummy_lr_fn = create_learning_rate_fn(1, 1, 1, 0, args.learning_rate)
+    
+    if isinstance(state.params, dict) and any(isinstance(v, jax.Array) and v.sharding.device_set for v in jax.tree_util.tree_leaves(state.params)):
+        logger.info("Extracting parameters from replicated state for evaluation")
+        params = jax.tree.map(lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x, state.params)
+    else:
+        params = state.params
+    
+    eval_model = MODEL_CLASS()
+    eval_model.params = params
+    
+    eval_state = create_train_state(eval_model, dummy_lr_fn)
 
-    @jax.jit
-    def eval_step(params, batch):
-        outputs = state.apply_fn(
-            **{"params": params},
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            train=False
-        )
-        return outputs.loss, state.logits_fn(outputs.logits)
+    total_samples = len(eval_dataset)
+    all_preds = np.zeros(total_samples, dtype=np.int32)
+    all_labels = np.zeros(total_samples, dtype=np.int32)
+    running_loss = 0.0
+    sample_idx = 0
 
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         batch = {k: jnp.array(v) for k, v in batch.items()}
-        loss, pred = eval_step(state.params, batch)
-        eval_loss += loss.item()
-        nb_eval_steps += 1
-        preds.extend(pred.tolist())
-        labels.extend(batch["labels"].tolist())
+        batch_size = len(batch["labels"])
+        
+        outputs = eval_state.apply_fn(
+            **{"params": eval_state.params},
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            train=False,
+        )
+        loss = eval_state.loss_fn(outputs.logits, batch["labels"])
+        pred = eval_state.logits_fn(outputs.logits)
+        
+        running_loss += loss.item()
+        
+        all_preds[sample_idx:sample_idx + batch_size] = np.array(pred)
+        all_labels[sample_idx:sample_idx + batch_size] = np.array(batch["labels"])
+        sample_idx += batch_size
 
-    eval_loss /= nb_eval_steps
+    eval_loss = running_loss / len(eval_dataloader)
 
-    assert len(labels) == len(preds), f"{len(labels)}, {len(preds)}"
-    correct = [1 if pred == label else 0 for pred, label in zip(preds, labels)]
+    correct = (all_preds == all_labels).astype(np.int32)
     
     if prefix == 'final':
         results = {
-            'f1': f1_score(y_true=labels, y_pred=preds),
-            'precision': precision_score(y_true=labels, y_pred=preds),
-            'recall': recall_score(y_true=labels, y_pred=preds),
-            'accuracy': accuracy_score(y_true=labels, y_pred=preds),
-            'report': classification_report(y_true=labels, y_pred=preds),
-            'correct': correct,
-            'preds': preds,
+            'f1': f1_score(y_true=all_labels, y_pred=all_preds),
+            'precision': precision_score(y_true=all_labels, y_pred=all_preds),
+            'recall': recall_score(y_true=all_labels, y_pred=all_preds),
+            'accuracy': accuracy_score(y_true=all_labels, y_pred=all_preds),
+            'report': classification_report(y_true=all_labels, y_pred=all_preds),
+            'correct': correct.tolist(),
+            'preds': all_preds.tolist(),
         }
     else:
         results = {
-            'f1': f1_score(y_true=labels, y_pred=preds),
+            'f1': f1_score(y_true=all_labels, y_pred=all_preds),
             'loss': eval_loss,
         }
     logger.info(results['f1'])
@@ -371,7 +427,6 @@ def process_strategy(
     jax.random.PRNGKey(args.seed)
 
     model = MODEL_CLASS()
-
     results = {}
 
     if not args.no_train and train_dataset is not None:
@@ -379,15 +434,17 @@ def process_strategy(
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
         model = MODEL_CLASS.from_pretrained(os.path.join(strategy_output_dir, 'best'))
+        
+    state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0, args.learning_rate))
 
     if not args.no_eval and val_dataset is not None:
-        results['val'] = evaluate(model, val_dataset, mode="val", prefix='final')
+        results['val'] = evaluate(state, val_dataset, mode="val", prefix='final')
         filename = os.path.join(strategy_output_dir, 'results_val.json')
         with open(filename, 'w') as f:
             json.dump(results['val'], f)
 
     if not args.no_test and test_dataset is not None:
-        results['test'] = evaluate(model, test_dataset, mode="test", prefix='final')
+        results['test'] = evaluate(state, test_dataset, mode="test", prefix='final')
         filename = os.path.join(strategy_output_dir, 'results_test.json')
         with open(filename, 'w') as f:
             json.dump(results['test'], f)
@@ -435,7 +492,7 @@ def main() -> None:
             output_dir,
             datasets.get('train'),
             datasets.get('val'),
-            datasets.get('test')
+            datasets.get('test'),
         )
         
         strategy, results = strategy_results
