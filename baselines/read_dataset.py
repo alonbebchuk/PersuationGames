@@ -22,10 +22,10 @@ SUPPORTED_MODES = ['test', 'train', 'val']
 
 
 def load_werewolf_dataset(
-    args: Any, 
-    strategy: str, 
-    tokenizer: PreTrainedTokenizer, 
-    mode: str
+    args: Any,
+    strategy: str,
+    tokenizer: PreTrainedTokenizer,
+    mode: str,
 ) -> TensorDataset:
     if strategy not in STRATEGIES:
         raise ValueError(f"Invalid strategy: {strategy}. Must be one of {STRATEGIES}")

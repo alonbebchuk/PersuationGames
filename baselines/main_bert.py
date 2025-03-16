@@ -1,4 +1,5 @@
 import argparse
+import jax
 import jax.numpy as jnp
 import json
 import logging as log
@@ -57,7 +58,7 @@ parser.add_argument("--pin_memory", action="store_true", help="Pin memory for fa
 args = parser.parse_args()
 
 if (os.path.exists(args.output_dir) and os.listdir(args.output_dir) and not args.no_train and not args.overwrite_output_dir):
-    raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
+    raise ValueError(f"Output directory ({args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome.")
 logger.setLevel(log.INFO)
 formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S")
 
@@ -77,14 +78,16 @@ logger.addHandler(fh)
 
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
+
 class TrainState(train_state.TrainState):
     logits_fn: Callable = struct.field(pytree_node=False)
     loss_fn: Callable = struct.field(pytree_node=False)
 
+
 def create_train_state(
     model: FlaxBertForSequenceClassification,
     learning_rate_fn: Callable[[int], float],
-    weight_decay: float = 0.0
+    weight_decay: float = 0.0,
 ) -> TrainState:
     def decay_mask_fn(params):
         flat_params = traverse_util.flatten_dict(params)
@@ -104,11 +107,11 @@ def create_train_state(
         b2=0.999,
         eps=1e-6,
         weight_decay=weight_decay,
-        mask=decay_mask_fn
+        mask=decay_mask_fn,
     )
 
     def cross_entropy_loss(logits, labels):
-        xentropy = optax.softmax_cross_entropy(logits, onehot(labels, num_classes=2))
+        xentropy = optax.softmax_cross_entropy(logits=logits, onehot_labels=onehot(labels, num_classes=2))
         return jnp.mean(xentropy)
 
     return TrainState.create(
@@ -119,46 +122,44 @@ def create_train_state(
         loss_fn=cross_entropy_loss,
     )
 
+
 def create_learning_rate_fn(
     train_ds_size: int,
     train_batch_size: int,
     num_train_epochs: int,
     num_warmup_steps: int,
-    learning_rate: float
+    learning_rate: float,
 ) -> Callable[[int], float]:
     steps_per_epoch = train_ds_size // train_batch_size
     num_train_steps = steps_per_epoch * num_train_epochs
     warmup_fn = optax.linear_schedule(init_value=0.0, end_value=learning_rate, transition_steps=num_warmup_steps)
-    decay_fn = optax.linear_schedule(
-        init_value=learning_rate,
-        end_value=0,
-        transition_steps=num_train_steps - num_warmup_steps
-    )
+    decay_fn = optax.linear_schedule(init_value=learning_rate, end_value=0, transition_steps=num_train_steps - num_warmup_steps)
     schedule_fn = optax.join_schedules(schedules=[warmup_fn, decay_fn], boundaries=[num_warmup_steps])
     return schedule_fn
+
 
 def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
-    val_dataset: Dataset
+    val_dataset: Dataset,
 ) -> Tuple[int, float, float]:
     tb_writer = SummaryWriter(args.output_dir)
 
     train_dataloader = DataLoader(
-        train_dataset, 
-        batch_size=args.batch_size, 
+        train_dataset,
+        batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
-        persistent_workers=True if args.num_workers > 0 else False
+        persistent_workers=True if args.num_workers > 0 else False,
     )
-    
+
     learning_rate_fn = create_learning_rate_fn(
         len(train_dataset),
         args.batch_size,
         args.num_train_epochs,
         args.warmup_steps,
-        args.learning_rate
+        args.learning_rate,
     )
 
     state = create_train_state(model, learning_rate_fn, weight_decay=args.weight_decay)
@@ -240,15 +241,15 @@ def evaluate(
     model: FlaxBertForSequenceClassification,
     eval_dataset: Optional[Dataset] = None,
     mode: str = 'val',
-    prefix: str = ''
+    prefix: str = '',
 ) -> Dict[str, Any]:
     eval_dataloader = DataLoader(
-        eval_dataset, 
-        batch_size=args.eval_batch_size, 
+        eval_dataset,
+        batch_size=args.eval_batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
-        persistent_workers=True if args.num_workers > 0 else False
+        persistent_workers=True if args.num_workers > 0 else False,
     )
 
     logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
@@ -307,7 +308,7 @@ def evaluate(
 
 def log_predictions(
     splits: List[str],
-    preds: Dict[str, Dict[str, List[int]]]
+    preds: Dict[str, Dict[str, List[int]]],
 ) -> None:
     for dataset in args.dataset:
         for split in splits:
@@ -336,7 +337,7 @@ def process_strategy(
     output_dir: str,
     train_dataset: Optional[Dataset] = None,
     val_dataset: Optional[Dataset] = None,
-    test_dataset: Optional[Dataset] = None
+    test_dataset: Optional[Dataset] = None,
 ) -> Tuple[str, Dict[str, Dict[str, Any]]]:
     logger.info(f"Training for strategy {strategy}")
     strategy_output_dir = os.path.join(output_dir, strategy)
@@ -346,7 +347,7 @@ def process_strategy(
     random.seed(args.seed)
     np.random.seed(args.seed)
     jax.random.PRNGKey(args.seed)
-    
+
     model = MODEL_CLASS.from_pretrained(MODEL_NAME, num_labels=2)
     tokenizer = TOKENIZER_CLASS.from_pretrained(MODEL_NAME)
     if args.context_size != 0:
@@ -354,7 +355,7 @@ def process_strategy(
         model.resize_token_embeddings(len(tokenizer))
 
     results = {}
-    
+
     if not args.no_train and train_dataset is not None:
         global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset)
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
@@ -375,9 +376,10 @@ def process_strategy(
 
     return strategy, results
 
+
 def main() -> None:
     mp.set_start_method('spawn', force=True)
-    
+
     logger.info("------NEW RUN-----")
     logger.info("random seed %s", args.seed)
     logger.info("Training/evaluation parameters %s", args)
@@ -409,7 +411,7 @@ def main() -> None:
         for strategy in STRATEGIES:
             datasets = strategy_datasets[strategy]
             results.append(pool.apply_async(process_fn, (strategy, datasets['train'], datasets['val'], datasets['test'])))
-        
+
         for result in results:
             strategy, strategy_results = result.get()
             if 'val' in strategy_results:
@@ -420,7 +422,7 @@ def main() -> None:
                     all_correct['val'] = [x + y for x, y in zip(all_correct['val'], strategy_results['val']['correct'])]
                 preds['val'][strategy] = strategy_results['val']['preds']
                 averaged_f1['val'] += strategy_results['val']['f1']
-            
+
             if 'test' in strategy_results:
                 all_result['test'][strategy] = strategy_results['test']
                 if all_correct['test'] is None:
