@@ -3,7 +3,7 @@ import os
 import requests
 import torch
 from torch.utils.data import TensorDataset
-from typing import Any, Dict
+from typing import Any
 
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
