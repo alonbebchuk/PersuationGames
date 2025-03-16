@@ -433,7 +433,7 @@ def process_strategy(
         global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset)
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
-        model = MODEL_CLASS.from_pretrained(os.path.join(strategy_output_dir, 'best'))
+        model = FlaxBertForSequenceClassification.from_pretrained(os.path.join(strategy_output_dir, 'best'), num_labels=2)
         
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0, args.learning_rate))
 
