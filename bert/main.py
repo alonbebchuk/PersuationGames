@@ -9,66 +9,73 @@ import optax
 import os
 import pandas as pd
 import random
+import wandb
 from collections import defaultdict
 from flax import struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
-from read_dataset import load_werewolf_dataset
+from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
-from transformers import FlaxBertForSequenceClassification, BertTokenizer
+from transformers import BertTokenizer, FlaxBertForSequenceClassification
 from typing import (
     Any,
     Callable,
     Dict,
     List,
-    Optional,
     Tuple,
 )
 from datasets import Dataset, DatasetDict
 
-MODEL_CLASS = lambda: FlaxBertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2)
-TOKENIZER_CLASS = lambda: BertTokenizer.from_pretrained("bert-base-uncased")
+
+def MODEL_CLASS() -> FlaxBertForSequenceClassification:
+    return FlaxBertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2)
+
+
+def TOKENIZER_CLASS() -> BertTokenizer:
+    return BertTokenizer.from_pretrained("bert-base-uncased")
+
 
 logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", nargs="+", type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
-parser.add_argument("--context_size", type=int, help="Size of the context")
-parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
+# required
+parser.add_argument("--dataset", type=str, help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
-parser.add_argument("--output_dir", type=str, help="Output directory")
-parser.add_argument("--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory")
-parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
+parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation during training.")
 parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the val set.")
+parser.add_argument("--no_pin_memory", action="store_true", help="Pin memory for faster data transfer")
 parser.add_argument("--no_test", action="store_true", help="Whether to run predictions on the test set.")
-parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation every epoch.")
-parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster data transfer")
-parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
-parser.add_argument("--evaluate_period", default=2, type=int, help="evaluate every * epochs.")
-parser.add_argument("--eval_batch_size", default=256, type=int)
-parser.add_argument("--max_seq_length", default=256, type=int)
-parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
+parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
+# optional
+parser.add_argument("--adam_b1", default=0.9, type=float, help="Adam b1")
+parser.add_argument("--adam_b2", default=0.999, type=float, help="Adam b2")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
-parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
+parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
 parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
+parser.add_argument("--eval_batch_size", default=256, type=int, help="Batch size for evaluation.")
+parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
+parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
+parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+parser.add_argument("--max_seq_length", default=256, type=int, help="The maximum sequence length for the model.")
+parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
-
+parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
+parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-if (os.path.exists(args.output_dir) and os.listdir(args.output_dir) and not args.no_train and not args.overwrite_output_dir):
-    raise ValueError(f"Output directory ({args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome.")
-logger.setLevel(log.INFO)
-formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S")
+args.output_dir = os.path.join("bert", "out", args.dataset, str(args.seed))
+args.dataset_dir = os.path.join("bert", "data", args.dataset)
 
-if not os.path.exists(args.output_dir):
-    os.makedirs(args.output_dir)
+os.makedirs(args.output_dir, exist_ok=True)
+
+logger.setLevel(log.INFO)
+formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S")
 
 fh = log.FileHandler(os.path.join(args.output_dir, "log.txt"))
 fh.setLevel(log.INFO)
@@ -92,9 +99,11 @@ class TrainState(train_state.TrainState):
 def create_train_state(
     model: FlaxBertForSequenceClassification,
     learning_rate_fn: Callable[[int], float],
-    weight_decay: float = 0.0,
+    weight_decay: float,
 ) -> TrainState:
-    def decay_mask_fn(params):
+    def decay_mask_fn(
+        params: Dict[str, Any],
+    ) -> Dict[str, Any]:
         flat_params = traverse_util.flatten_dict(params)
         layer_norm_candidates = ["layernorm", "layer_norm", "ln"]
         layer_norm_named_params = {
@@ -108,14 +117,17 @@ def create_train_state(
 
     optimizer = optax.adamw(
         learning_rate=learning_rate_fn,
-        b1=0.9,
-        b2=0.999,
-        eps=1e-6,
+        b1=args.adam_b1,
+        b2=args.adam_b2,
+        eps=args.adam_epsilon,
         weight_decay=weight_decay,
         mask=decay_mask_fn,
     )
 
-    def cross_entropy_loss(logits: jnp.ndarray, labels: jnp.ndarray) -> jnp.ndarray:
+    def cross_entropy_loss(
+        logits: jnp.ndarray,
+        labels: jnp.ndarray,
+    ) -> jnp.ndarray:
         xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
         return jnp.mean(xentropy)
 
@@ -133,47 +145,63 @@ def create_learning_rate_fn(
     train_batch_size: int,
     num_train_epochs: int,
     num_warmup_steps: int,
-    learning_rate: float,
 ) -> Callable[[int], float]:
     steps_per_epoch = train_ds_size // train_batch_size
     num_train_steps = steps_per_epoch * num_train_epochs
-    warmup_fn = optax.linear_schedule(init_value=0.0, end_value=learning_rate, transition_steps=num_warmup_steps)
-    decay_fn = optax.linear_schedule(init_value=learning_rate, end_value=0, transition_steps=num_train_steps - num_warmup_steps)
+    warmup_fn = optax.linear_schedule(init_value=0.0, end_value=args.learning_rate, transition_steps=num_warmup_steps)
+    decay_fn = optax.linear_schedule(init_value=args.learning_rate, end_value=0, transition_steps=num_train_steps - num_warmup_steps)
     schedule_fn = optax.join_schedules(schedules=[warmup_fn, decay_fn], boundaries=[num_warmup_steps])
     return schedule_fn
 
 
-def collate_fn(batch: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
+def collate_fn(
+    batch: List[Dict[str, np.ndarray]],
+) -> Dict[str, np.ndarray]:
     return {
         "input_ids": np.array([x["input_ids"] for x in batch]),
         "attention_mask": np.array([x["attention_mask"] for x in batch]),
-        "labels": np.array([x["labels"] for x in batch])
+        "labels": np.array([x["labels"] for x in batch]),
     }
 
-def replicate_train_state(state: TrainState, devices: List[Any]) -> TrainState:
+
+def replicate_train_state(
+    state: TrainState,
+    devices: List[Any],
+) -> TrainState:
     return jax.device_put_replicated(state, devices)
 
-def get_adjusted_batch_size(original_batch_size: int, n_devices: int, name: str = "batch") -> int:
+
+def get_adjusted_batch_size(
+    original_batch_size: int,
+    n_devices: int,
+    name: str,
+) -> int:
     min_batch_size = n_devices * 2
     global_batch_size = max(original_batch_size, min_batch_size)
-    
+
     if global_batch_size != original_batch_size:
         logger.warning(f"Adjusting {name} size from {original_batch_size} to {global_batch_size} to ensure at least 2 samples per device")
-    
+
     per_device_batch_size = global_batch_size // n_devices
     if global_batch_size % n_devices != 0:
         adjusted_batch_size = per_device_batch_size * n_devices
         logger.warning(f"Further adjusting {name} size from {global_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
         global_batch_size = adjusted_batch_size
-        
+
     return global_batch_size
+
 
 def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
     val_dataset: Dataset,
+    output_dir: str,
 ) -> Tuple[int, float, float]:
-    tb_writer = SummaryWriter(args.output_dir)
+    tb_writer = SummaryWriter(output_dir)
+
+    worker_id = jax.process_index()
+    if worker_id == 0:
+        wandb.init(project=output_dir.replace("/", "_"), config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -186,11 +214,11 @@ def train(
         batch_size=global_batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=args.pin_memory,
+        pin_memory=not args.no_pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn,
-        drop_last=True
+        drop_last=True,
     )
 
     learning_rate_fn = create_learning_rate_fn(
@@ -198,12 +226,10 @@ def train(
         global_batch_size,
         args.num_train_epochs,
         args.warmup_steps,
-        args.learning_rate,
     )
 
     rng = jax.random.PRNGKey(args.seed)
     state = create_train_state(model, learning_rate_fn, weight_decay=args.weight_decay)
-    
     state = replicate_train_state(state, devices)
 
     @jax.pmap
@@ -212,7 +238,9 @@ def train(
         batch: Dict[str, jnp.ndarray],
         dropout_rng: jnp.ndarray,
     ) -> Tuple[TrainState, jnp.ndarray]:
-        def loss_fn(params: Dict[str, Any]) -> jnp.ndarray:
+        def loss_fn(
+            params: Dict[str, Any],
+        ) -> jnp.ndarray:
             outputs = state.apply_fn(
                 **{"params": params},
                 input_ids=batch["input_ids"],
@@ -244,10 +272,10 @@ def train(
                 continue
 
             batch = {
-                k: jnp.array(v).reshape((n_devices, -1) + v.shape[1:]) 
+                k: jnp.array(v).reshape((n_devices, -1) + v.shape[1:])
                 for k, v in batch.items()
             }
-            
+
             rng, dropout_rng = jax.random.split(rng)
             dropout_rngs = jax.random.split(dropout_rng, n_devices)
 
@@ -259,9 +287,11 @@ def train(
                 current_lr = learning_rate_fn(global_step)
                 if isinstance(current_lr, jnp.ndarray):
                     current_lr = np.array(current_lr)
-                
+
                 tb_writer.add_scalar("lr", current_lr, global_step)
                 tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
+                if worker_id == 0:
+                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr})
                 logging_loss = tr_loss
                 logger.info("logging train info!!!")
                 logger.info("*")
@@ -270,29 +300,30 @@ def train(
             results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
             for key, value in results.items():
                 tb_writer.add_scalar("eval_{}".format(key), value, epoch)
+                if worker_id == 0:
+                    wandb.log({"eval_{}".format(key): value})
             logging_loss = tr_loss
             logger.info(f"{results}")
-            
+
             if results["f1"] >= best_f1:
                 best_f1 = results["f1"]
                 wait_step = 0
-                output_dir = os.path.join(args.output_dir, "best")
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
-                logger.info("Saving best model to %s", output_dir)
-                
+                output_best_dir = os.path.join(output_dir, "best")
+                os.makedirs(output_best_dir, exist_ok=True)
+                logger.info("Saving best model to %s", output_best_dir)
+
                 devices = jax.local_devices()
                 n_devices = len(devices)
                 unreplicated_params = jax.tree.map(
-                    lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x, 
-                    state.params
+                    lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x,
+                    state.params,
                 )
-                
+
                 save_model = MODEL_CLASS()
                 save_model.params = unreplicated_params
-                save_model.save_pretrained(output_dir)
-                
-                with open(os.path.join(output_dir, "training_args.json"), "w") as f:
+                save_model.save_pretrained(output_best_dir)
+
+                with open(os.path.join(output_best_dir, "training_args.json"), "w") as f:
                     json.dump(vars(args), f, indent=2)
             else:
                 wait_step += 1
@@ -301,18 +332,21 @@ def train(
                     break
 
     tb_writer.close()
+    if worker_id == 0:
+        wandb.finish()
+
     return global_step, tr_loss / global_step, best_f1
 
 
 def evaluate(
     state: TrainState,
-    eval_dataset: Optional[Dataset] = None,
-    mode: str = "val",
-    prefix: str = "",
+    eval_dataset: Dataset,
+    mode: str,
+    prefix: str,
 ) -> Dict[str, Any]:
     devices = jax.local_devices()
     n_devices = len(devices)
-    
+
     global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices, "eval batch")
 
     eval_dataloader = DataLoader(
@@ -320,7 +354,7 @@ def evaluate(
         batch_size=global_eval_batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        pin_memory=args.pin_memory,
+        pin_memory=not args.no_pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn,
@@ -331,18 +365,21 @@ def evaluate(
     logger.info("  Num examples = %d", len(eval_dataset))
     logger.info("  Batch size = %d", global_eval_batch_size)
 
-    dummy_lr_fn = create_learning_rate_fn(1, 1, 1, 0, args.learning_rate)
-    
+    dummy_lr_fn = create_learning_rate_fn(1, 1, 1, 0)
+
     if isinstance(state.params, dict) and any(isinstance(v, jax.Array) and v.sharding.device_set for v in jax.tree_util.tree_leaves(state.params)):
         logger.info("Extracting parameters from replicated state for evaluation")
-        params = jax.tree.map(lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x, state.params)
+        params = jax.tree.map(
+            lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x,
+            state.params,
+        )
     else:
         params = state.params
-    
+
     eval_model = MODEL_CLASS()
     eval_model.params = params
-    
-    eval_state = create_train_state(eval_model, dummy_lr_fn)
+
+    eval_state = create_train_state(eval_model, dummy_lr_fn, weight_decay=0.0)
 
     total_samples = len(eval_dataset)
     all_preds = np.zeros(total_samples, dtype=np.int32)
@@ -353,7 +390,7 @@ def evaluate(
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         batch = {k: jnp.array(v) for k, v in batch.items()}
         batch_size = len(batch["labels"])
-        
+
         outputs = eval_state.apply_fn(
             **{"params": eval_state.params},
             input_ids=batch["input_ids"],
@@ -362,9 +399,9 @@ def evaluate(
         )
         loss = eval_state.loss_fn(outputs.logits, batch["labels"])
         pred = eval_state.logits_fn(outputs.logits)
-        
+
         running_loss += loss.item()
-        
+
         all_preds[sample_idx:sample_idx + batch_size] = np.array(pred)
         all_labels[sample_idx:sample_idx + batch_size] = np.array(batch["labels"])
         sample_idx += batch_size
@@ -372,7 +409,7 @@ def evaluate(
     eval_loss = running_loss / len(eval_dataloader)
 
     correct = (all_preds == all_labels).astype(np.int32)
-    
+
     if prefix == "final":
         results = {
             "f1": f1_score(y_true=all_labels, y_pred=all_preds),
@@ -396,10 +433,9 @@ def log_predictions(
     splits: List[str],
     preds: Dict[str, Dict[str, List[int]]],
 ) -> None:
-    for dataset in args.dataset:
-        for split in splits:
-            with open(os.path.join("data", dataset, f"{split}.json"), "r") as f:
-                games = json.load(f)
+    for split in splits:
+        with open(os.path.join(args.dataset_dir, f"{split}.json"), "r") as f:
+            games = json.load(f)
             id = -1
             data = defaultdict(list)
             for game in games:
@@ -418,54 +454,56 @@ def log_predictions(
             df.to_csv(os.path.join(args.output_dir, f"predictions_{split}.csv"))
 
 
-def write_json_file(data: Dict[str, Any], filepath: str) -> None:
+def write_json_file(
+    data: Dict[str, Any],
+    filepath: str,
+) -> None:
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
 
 
-def set_seeds(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    jax.random.PRNGKey(seed)
+def set_seeds() -> None:
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    jax.random.PRNGKey(args.seed)
 
 
 def process_strategy(
     strategy: str,
-    output_dir: str,
-    train_dataset: Optional[Dataset] = None,
-    val_dataset: Optional[Dataset] = None,
-    test_dataset: Optional[Dataset] = None,
+    train_dataset: Dataset,
+    val_dataset: Dataset,
+    test_dataset: Dataset,
 ) -> Tuple[str, Dict[str, Dict[str, Any]]]:
     logger.info(f"Training for strategy {strategy}")
-    args.output_dir = os.path.join(output_dir, strategy)
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
 
-    set_seeds(args.seed)
+    output_dir = os.path.join(args.output_dir, strategy)
+    os.makedirs(output_dir, exist_ok=True)
+
+    set_seeds()
 
     model = MODEL_CLASS()
     results = {}
 
     if not args.no_train and train_dataset is not None:
-        global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset)
+        global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset, output_dir)
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
-        best_model_path = os.path.join(args.output_dir, "best")
+        best_model_path = os.path.join(output_dir, "best")
         model = FlaxBertForSequenceClassification.from_pretrained(
-            best_model_path, 
+            best_model_path,
             num_labels=2,
-            local_files_only=True
+            local_files_only=True,
         )
-        
-    state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0, args.learning_rate))
+
+    state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0), weight_decay=0.0)
 
     if not args.no_eval and val_dataset is not None:
         results["val"] = evaluate(state, val_dataset, mode="val", prefix="final")
-        write_json_file(results["val"], os.path.join(args.output_dir, "results_val.json"))
+        write_json_file(results["val"], os.path.join(output_dir, "results_val.json"))
 
     if not args.no_test and test_dataset is not None:
         results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
-        write_json_file(results["test"], os.path.join(args.output_dir, "results_test.json"))
+        write_json_file(results["test"], os.path.join(output_dir, "results_test.json"))
 
     return strategy, results
 
@@ -473,22 +511,27 @@ def process_strategy(
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
     base_tokenizer = TOKENIZER_CLASS()
     strategy_datasets = {}
-    
+
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
         if not args.no_train:
-            strategy_datasets[strategy]["train"] = load_werewolf_dataset(args, strategy, base_tokenizer, mode="train")
+            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, base_tokenizer, mode="train")
         if not args.no_eval:
-            strategy_datasets[strategy]["val"] = load_werewolf_dataset(args, strategy, base_tokenizer, mode="val")
+            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, base_tokenizer, mode="val")
         if not args.no_test:
-            strategy_datasets[strategy]["test"] = load_werewolf_dataset(args, strategy, base_tokenizer, mode="test")
-    
+            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, base_tokenizer, mode="test")
+
     return strategy_datasets
 
 
-def format_results(split, all_result, all_correct, averaged_f1, output_dir):
+def format_results(
+    split: str,
+    all_result: Dict[str, Dict[str, Dict[str, Any]]],
+    all_correct: Dict[str, List[int]],
+    averaged_f1: Dict[str, float],
+) -> None:
     result = all_result[split]
-    
+
     cnt = 0
     for x in all_correct[split]:
         if x == len(STRATEGIES):
@@ -496,9 +539,9 @@ def format_results(split, all_result, all_correct, averaged_f1, output_dir):
     result["overall_accuracy"] = cnt / len(all_correct[split])
     result["averaged_f1"] = averaged_f1[split] / len(STRATEGIES)
 
-    write_json_file(result, os.path.join(output_dir, f"results_{split}.json"))
+    write_json_file(result, os.path.join(args.output_dir, f"results_{split}.json"))
 
-    with open(os.path.join(output_dir, f"results_{split}_beaut.txt"), "w") as f:
+    with open(os.path.join(args.output_dir, f"results_{split}_beaut.txt"), "w") as f:
         for strategy in STRATEGIES:
             f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
         f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
@@ -520,11 +563,10 @@ def main() -> None:
     logger.info("Training/evaluation parameters %s", args)
     logger.info(f"Using {args.num_workers} workers for data loading")
 
-    set_seeds(args.seed)
+    set_seeds()
 
     all_result = {"val": {}, "test": {}}
     all_correct = {"val": None, "test": None}
-    output_dir = args.output_dir
     preds = {"val": {}, "test": {}}
     averaged_f1 = {"val": 0.0, "test": 0.0}
     splits = []
@@ -540,30 +582,28 @@ def main() -> None:
         datasets = strategy_datasets[strategy]
         strategy_results = process_strategy(
             strategy,
-            output_dir,
             datasets.get("train"),
             datasets.get("val"),
             datasets.get("test"),
         )
-        
+
         strategy, results = strategy_results
         for split in splits:
             if split in results:
                 all_result[split][strategy] = results[split]
-                
+
                 if all_correct[split] is None:
                     all_correct[split] = results[split]["correct"]
                 else:
                     all_correct[split] = [x + y for x, y in zip(all_correct[split], results[split]["correct"])]
-                
+
                 preds[split][strategy] = results[split]["preds"]
                 averaged_f1[split] += results[split]["f1"]
 
-    args.output_dir = output_dir
     log_predictions(splits, preds)
 
     for split in splits:
-        format_results(split, all_result, all_correct, averaged_f1, args.output_dir)
+        format_results(split, all_result, all_correct, averaged_f1)
 
 
 if __name__ == "__main__":
