@@ -1,10 +1,11 @@
 import json
+import librosa
 import os
 import requests
-from datasets import Dataset
 import numpy as np
+from datasets import Dataset
 from typing import Any
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, WhisperFeatureExtractor
 
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
@@ -17,15 +18,22 @@ STRATEGIES_TO_ID = {
     "Defense": 5,
     "Evidence": 6,
 }
-SUPPORTED_DATASETS = ['Ego4D', 'Youtube']
-SUPPORTED_MODES = ['test', 'train', 'val']
+SUPPORTED_DATASETS = ["Ego4D", "Youtube"]
+SUPPORTED_DATASETS_TO_VIDEO_NAME = {
+    "Ego4D": "EG_ID",
+    "Youtube": "video_name",
+}
+SUPPORTED_MODES = ["test", "train", "val"]
 
+SAMPLING_RATE = 16000
+MAX_SAMPLES = 30 * SAMPLING_RATE
 
 def load_werewolf_dataset(
     args: Any,
     strategy: str,
     tokenizer: PreTrainedTokenizer,
     mode: str,
+    feature_extractor: WhisperFeatureExtractor = None,
 ) -> Dataset:
     if strategy not in STRATEGIES:
         raise ValueError(f"Invalid strategy: {strategy}. Must be one of {STRATEGIES}")
@@ -33,7 +41,7 @@ def load_werewolf_dataset(
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Invalid mode: {mode}. Must be one of {SUPPORTED_MODES}")
 
-    all_input_ids, all_input_mask, all_label = [], [], []
+    all_input_ids, all_input_mask, all_label, all_audio_features = [], [], [], []
 
     if isinstance(args.dataset, str):
         args.dataset = (args.dataset,)
@@ -42,9 +50,9 @@ def load_werewolf_dataset(
         if dataset not in SUPPORTED_DATASETS:
             raise NotImplementedError(f"Dataset {dataset} not supported")
 
-        local_path = os.path.join('data', dataset, f'{mode}.json')
+        local_path = os.path.join("data", dataset, f"{mode}.json")
         if os.path.exists(local_path):
-            with open(local_path, 'r') as f:
+            with open(local_path, "r") as f:
                 games = json.load(f)
         else:
             json_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/split/{mode}.json"
@@ -54,7 +62,7 @@ def load_werewolf_dataset(
             response.raise_for_status()
             games = response.json()
 
-            with open(local_path, 'w') as f:
+            with open(local_path, "w") as f:
                 json.dump(games, f)
 
         id = 0
@@ -62,10 +70,10 @@ def load_werewolf_dataset(
             dialogues = game["Dialogue"]
             context = [[]] * args.context_size
 
-            for record in dialogues:
+            for rid, record in enumerate(dialogues):
                 id += 1
-                label = 1 if strategy in record['annotation'] else 0
-                utterance = record['utterance']
+                label = 1 if strategy in record["annotation"] else 0
+                utterance = record["utterance"]
 
                 tokens = [tokenizer.cls_token]
                 if args.context_size != 0:
@@ -94,10 +102,31 @@ def load_werewolf_dataset(
                 all_input_mask.append(input_mask)
                 all_label.append(label)
 
+                if feature_extractor is not None:
+                    video_id = game[SUPPORTED_DATASETS_TO_VIDEO_NAME[dataset]]
+                    mp4_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/videos/{video_id}_{game['Game_ID']}_{rid}.mp4"
+                    
+                    audio_response = requests.get(mp4_url)
+                    audio_response.raise_for_status()
+                    
+                    temp_path = f"temp_{video_id}_{game['Game_ID']}_{rid}.mp4"
+                    with open(temp_path, "wb") as f:
+                        f.write(audio_response.content)
+                    
+                    audio, sr = librosa.load(temp_path, sr=SAMPLING_RATE)
+                    if len(audio) > MAX_SAMPLES:
+                        audio = audio[-MAX_SAMPLES:]
+                    os.remove(temp_path)
+                    
+                    audio_features = feature_extractor(audio, sampling_rate=sr).input_features[0]
+                    all_audio_features.append(audio_features)
+
     dataset_dict = {
-        'input_ids': np.array(all_input_ids, dtype=np.int32),
-        'attention_mask': np.array(all_input_mask, dtype=np.int32),
-        'labels': np.array(all_label, dtype=np.int32)
+        "input_ids": np.array(all_input_ids, dtype=np.int32),
+        "attention_mask": np.array(all_input_mask, dtype=np.int32),
+        "labels": np.array(all_label, dtype=np.int32)
     }
+    if feature_extractor is not None:
+        dataset_dict["audio_features"] = np.array(all_audio_features, dtype=np.float32)
     
     return Dataset.from_dict(dataset_dict)

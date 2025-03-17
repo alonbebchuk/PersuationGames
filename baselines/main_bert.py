@@ -35,7 +35,7 @@ TOKENIZER_CLASS = lambda: BertTokenizer.from_pretrained("bert-base-uncased")
 logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", nargs='+', type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
+parser.add_argument("--dataset", nargs="+", type=str, help="Name of dataset, Ego4D or Youtube or Ego4D Youtube")
 parser.add_argument("--context_size", type=int, help="Size of the context")
 parser.add_argument("--learning_rate", type=float, help="The initial learning rate for Adam.")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
@@ -48,15 +48,15 @@ parser.add_argument("--no_evaluate_during_training", action="store_true", help="
 parser.add_argument("--pin_memory", action="store_true", help="Pin memory for faster data transfer")
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--evaluate_period", default=2, type=int, help="evaluate every * epochs.")
-parser.add_argument('--eval_batch_size', default=256, type=int)
+parser.add_argument("--eval_batch_size", default=256, type=int)
 parser.add_argument("--max_seq_length", default=256, type=int)
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument('--warmup_steps', default=0, type=int, help="Linear warmup over warmup_steps.")
-parser.add_argument('--early_stopping_patience', default=10000, type=int, help="Patience for early stopping.")
-parser.add_argument('--logging_steps', default=40, type=int, help="Log every X updates steps.")
+parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
+parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
+parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 
@@ -70,7 +70,7 @@ formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s -   %(message)
 if not os.path.exists(args.output_dir):
     os.makedirs(args.output_dir)
 
-fh = log.FileHandler(os.path.join(args.output_dir, 'log.txt'))
+fh = log.FileHandler(os.path.join(args.output_dir, "log.txt"))
 fh.setLevel(log.INFO)
 fh.setFormatter(formatter)
 
@@ -145,9 +145,9 @@ def create_learning_rate_fn(
 
 def collate_fn(batch: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
     return {
-        'input_ids': np.array([x['input_ids'] for x in batch]),
-        'attention_mask': np.array([x['attention_mask'] for x in batch]),
-        'labels': np.array([x['labels'] for x in batch])
+        "input_ids": np.array([x["input_ids"] for x in batch]),
+        "attention_mask": np.array([x["attention_mask"] for x in batch]),
+        "labels": np.array([x["labels"] for x in batch])
     }
 
 def replicate_train_state(state: TrainState, devices: List[Any]) -> TrainState:
@@ -234,7 +234,7 @@ def train(
     best_f1 = 0
     tr_loss, logging_loss = 0.0, 0.0
 
-    train_iterator = trange(epochs_trained, int(args.num_train_epochs), desc='Epoch')
+    train_iterator = trange(epochs_trained, int(args.num_train_epochs), desc="Epoch")
 
     for epoch in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration")
@@ -273,8 +273,8 @@ def train(
             logging_loss = tr_loss
             logger.info(f"{results}")
             
-            if results['f1'] >= best_f1:
-                best_f1 = results['f1']
+            if results["f1"] >= best_f1:
+                best_f1 = results["f1"]
                 wait_step = 0
                 output_dir = os.path.join(args.output_dir, "best")
                 if not os.path.exists(output_dir):
@@ -292,7 +292,7 @@ def train(
                 save_model.params = unreplicated_params
                 save_model.save_pretrained(output_dir)
                 
-                with open(os.path.join(output_dir, "training_args.json"), 'w') as f:
+                with open(os.path.join(output_dir, "training_args.json"), "w") as f:
                     json.dump(vars(args), f, indent=2)
             else:
                 wait_step += 1
@@ -307,8 +307,8 @@ def train(
 def evaluate(
     state: TrainState,
     eval_dataset: Optional[Dataset] = None,
-    mode: str = 'val',
-    prefix: str = '',
+    mode: str = "val",
+    prefix: str = "",
 ) -> Dict[str, Any]:
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -327,7 +327,7 @@ def evaluate(
         drop_last=True,
     )
 
-    logger.info("***** Running evaluation %s *****", mode + '-' + prefix)
+    logger.info("***** Running evaluation %s *****", mode + "-" + prefix)
     logger.info("  Num examples = %d", len(eval_dataset))
     logger.info("  Batch size = %d", global_eval_batch_size)
 
@@ -373,22 +373,22 @@ def evaluate(
 
     correct = (all_preds == all_labels).astype(np.int32)
     
-    if prefix == 'final':
+    if prefix == "final":
         results = {
-            'f1': f1_score(y_true=all_labels, y_pred=all_preds),
-            'precision': precision_score(y_true=all_labels, y_pred=all_preds),
-            'recall': recall_score(y_true=all_labels, y_pred=all_preds),
-            'accuracy': accuracy_score(y_true=all_labels, y_pred=all_preds),
-            'report': classification_report(y_true=all_labels, y_pred=all_preds),
-            'correct': correct.tolist(),
-            'preds': all_preds.tolist(),
+            "f1": f1_score(y_true=all_labels, y_pred=all_preds),
+            "precision": precision_score(y_true=all_labels, y_pred=all_preds),
+            "recall": recall_score(y_true=all_labels, y_pred=all_preds),
+            "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
+            "report": classification_report(y_true=all_labels, y_pred=all_preds),
+            "correct": correct.tolist(),
+            "preds": all_preds.tolist(),
         }
     else:
         results = {
-            'f1': f1_score(y_true=all_labels, y_pred=all_preds),
-            'loss': eval_loss,
+            "f1": f1_score(y_true=all_labels, y_pred=all_preds),
+            "loss": eval_loss,
         }
-    logger.info(results['f1'])
+    logger.info(results["f1"])
     return results
 
 
@@ -398,12 +398,12 @@ def log_predictions(
 ) -> None:
     for dataset in args.dataset:
         for split in splits:
-            with open(os.path.join('data', dataset, f'{split}.json'), 'r') as f:
+            with open(os.path.join("data", dataset, f"{split}.json"), "r") as f:
                 games = json.load(f)
             id = -1
             data = defaultdict(list)
             for game in games:
-                for record in game['Dialogue']:
+                for record in game["Dialogue"]:
                     id += 1
                     pred = []
                     for strategy in STRATEGIES:
@@ -413,13 +413,13 @@ def log_predictions(
                         pred.append("No Strategy")
                     for key, val in record.items():
                         data[key].append(val)
-                    data['prediction'].append(pred)
+                    data["prediction"].append(pred)
             df = pd.DataFrame.from_dict(data)
-            df.to_csv(os.path.join(args.output_dir, f'predictions_{split}.csv'))
+            df.to_csv(os.path.join(args.output_dir, f"predictions_{split}.csv"))
 
 
 def write_json_file(data: Dict[str, Any], filepath: str) -> None:
-    with open(filepath, 'w') as f:
+    with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
 
 
@@ -450,7 +450,7 @@ def process_strategy(
         global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset)
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
-        best_model_path = os.path.join(args.output_dir, 'best')
+        best_model_path = os.path.join(args.output_dir, "best")
         model = FlaxBertForSequenceClassification.from_pretrained(
             best_model_path, 
             num_labels=2,
@@ -460,12 +460,12 @@ def process_strategy(
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0, args.learning_rate))
 
     if not args.no_eval and val_dataset is not None:
-        results['val'] = evaluate(state, val_dataset, mode="val", prefix='final')
-        write_json_file(results['val'], os.path.join(args.output_dir, 'results_val.json'))
+        results["val"] = evaluate(state, val_dataset, mode="val", prefix="final")
+        write_json_file(results["val"], os.path.join(args.output_dir, "results_val.json"))
 
     if not args.no_test and test_dataset is not None:
-        results['test'] = evaluate(state, test_dataset, mode="test", prefix='final')
-        write_json_file(results['test'], os.path.join(args.output_dir, 'results_test.json'))
+        results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
+        write_json_file(results["test"], os.path.join(args.output_dir, "results_test.json"))
 
     return strategy, results
 
@@ -477,11 +477,11 @@ def load_strategy_datasets() -> Dict[str, DatasetDict]:
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
         if not args.no_train:
-            strategy_datasets[strategy]['train'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='train')
+            strategy_datasets[strategy]["train"] = load_werewolf_dataset(args, strategy, base_tokenizer, mode="train")
         if not args.no_eval:
-            strategy_datasets[strategy]['val'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='val')
+            strategy_datasets[strategy]["val"] = load_werewolf_dataset(args, strategy, base_tokenizer, mode="val")
         if not args.no_test:
-            strategy_datasets[strategy]['test'] = load_werewolf_dataset(args, strategy, base_tokenizer, mode='test')
+            strategy_datasets[strategy]["test"] = load_werewolf_dataset(args, strategy, base_tokenizer, mode="test")
     
     return strategy_datasets
 
@@ -493,19 +493,19 @@ def format_results(split, all_result, all_correct, averaged_f1, output_dir):
     for x in all_correct[split]:
         if x == len(STRATEGIES):
             cnt += 1
-    result['overall_accuracy'] = cnt / len(all_correct[split])
-    result['averaged_f1'] = averaged_f1[split] / len(STRATEGIES)
+    result["overall_accuracy"] = cnt / len(all_correct[split])
+    result["averaged_f1"] = averaged_f1[split] / len(STRATEGIES)
 
-    write_json_file(result, os.path.join(output_dir, f'results_{split}.json'))
+    write_json_file(result, os.path.join(output_dir, f"results_{split}.json"))
 
-    with open(os.path.join(output_dir, f"results_{split}_beaut.txt"), 'w') as f:
+    with open(os.path.join(output_dir, f"results_{split}_beaut.txt"), "w") as f:
         for strategy in STRATEGIES:
             f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
         f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
 
         for strategy in STRATEGIES:
-            report = result[strategy]['report']
-            result[strategy].pop('report')
+            report = result[strategy]["report"]
+            result[strategy].pop("report")
             f.write(f"{strategy}\n")
             json.dump(result[strategy], f, indent=4)
             f.write(report)
@@ -513,7 +513,7 @@ def format_results(split, all_result, all_correct, averaged_f1, output_dir):
 
 
 def main() -> None:
-    mp.set_start_method('spawn', force=True)
+    mp.set_start_method("spawn", force=True)
 
     logger.info("------NEW RUN-----")
     logger.info("random seed %s", args.seed)
@@ -522,17 +522,17 @@ def main() -> None:
 
     set_seeds(args.seed)
 
-    all_result = {'val': {}, 'test': {}}
-    all_correct = {'val': None, 'test': None}
+    all_result = {"val": {}, "test": {}}
+    all_correct = {"val": None, "test": None}
     output_dir = args.output_dir
-    preds = {'val': {}, 'test': {}}
-    averaged_f1 = {'val': 0.0, 'test': 0.0}
+    preds = {"val": {}, "test": {}}
+    averaged_f1 = {"val": 0.0, "test": 0.0}
     splits = []
 
     if not args.no_eval:
-        splits.append('val')
+        splits.append("val")
     if not args.no_test:
-        splits.append('test')
+        splits.append("test")
 
     strategy_datasets = load_strategy_datasets()
 
@@ -541,9 +541,9 @@ def main() -> None:
         strategy_results = process_strategy(
             strategy,
             output_dir,
-            datasets.get('train'),
-            datasets.get('val'),
-            datasets.get('test'),
+            datasets.get("train"),
+            datasets.get("val"),
+            datasets.get("test"),
         )
         
         strategy, results = strategy_results
@@ -552,12 +552,12 @@ def main() -> None:
                 all_result[split][strategy] = results[split]
                 
                 if all_correct[split] is None:
-                    all_correct[split] = results[split]['correct']
+                    all_correct[split] = results[split]["correct"]
                 else:
-                    all_correct[split] = [x + y for x, y in zip(all_correct[split], results[split]['correct'])]
+                    all_correct[split] = [x + y for x, y in zip(all_correct[split], results[split]["correct"])]
                 
-                preds[split][strategy] = results[split]['preds']
-                averaged_f1[split] += results[split]['f1']
+                preds[split][strategy] = results[split]["preds"]
+                averaged_f1[split] += results[split]["f1"]
 
     args.output_dir = output_dir
     log_predictions(splits, preds)
