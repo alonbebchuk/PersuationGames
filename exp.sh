@@ -9,8 +9,8 @@ do
         --dataset ${dataset} \
         --seed ${seed}
     done
-  done
-  python3.10 get_results.py \
+    python3.10 get_results.py \
     --dataset ${dataset} \
     --model_type ${model_type}
+  done
 done
