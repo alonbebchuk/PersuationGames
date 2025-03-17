@@ -17,7 +17,6 @@ from flax.training.common_utils import onehot
 from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 from transformers import BertTokenizer, FlaxBertForSequenceClassification
 from typing import (
@@ -197,8 +196,6 @@ def train(
     val_dataset: Dataset,
     output_dir: str,
 ) -> Tuple[int, float, float]:
-    tb_writer = SummaryWriter(output_dir)
-
     worker_id = jax.process_index()
     if worker_id == 0:
         wandb.init(project="bert-werewolf", name=output_dir.replace("/", "-"), config=vars(args))
@@ -288,18 +285,14 @@ def train(
                 if isinstance(current_lr, jnp.ndarray):
                     current_lr = np.array(current_lr)
 
-                tb_writer.add_scalar("lr", current_lr, global_step)
-                tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                 if worker_id == 0:
-                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr, "epoch": epoch})
+                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr, "step": global_step})
                 logging_loss = tr_loss
                 logger.info("logging train info!!!")
                 logger.info("*")
 
         if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
             results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
-            for key, value in results.items():
-                tb_writer.add_scalar("eval_{}".format(key), value, epoch)
             if worker_id == 0:
                 wandb.log({**{f"eval_{key}": value for key, value in results.items()}, "epoch": epoch})
             logging_loss = tr_loss
@@ -331,7 +324,6 @@ def train(
                     train_iterator.close()
                     break
 
-    tb_writer.close()
     if worker_id == 0:
         wandb.finish()
 
