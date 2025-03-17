@@ -286,7 +286,7 @@ def train(
                     current_lr = np.array(current_lr)
 
                 if worker_id == 0:
-                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr, "step": global_step})
+                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr})
                 logging_loss = tr_loss
                 logger.info("logging train info!!!")
                 logger.info("*")
@@ -294,7 +294,7 @@ def train(
         if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
             results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
             if worker_id == 0:
-                wandb.log({**{f"eval_{key}": value for key, value in results.items()}, "epoch": epoch})
+                wandb.log({f"eval_{key}": value for key, value in results.items()})
             logging_loss = tr_loss
             logger.info(f"{results}")
 
