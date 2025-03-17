@@ -42,7 +42,7 @@ def load_werewolf_dataset(
         if dataset not in SUPPORTED_DATASETS:
             raise NotImplementedError(f"Dataset {dataset} not supported")
 
-        local_path = os.path.join('data', dataset, 'split', f'{mode}.json')
+        local_path = os.path.join('data', dataset, f'{mode}.json')
         if os.path.exists(local_path):
             with open(local_path, 'r') as f:
                 games = json.load(f)

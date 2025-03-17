@@ -14,4 +14,8 @@ do
       --overwrite_output_dir \
       --pin_memory
   done
+  python3.10 baselines/get_results.py \
+    --dataset ${dataset} \
+    --model_type ${model_type} \
+    --output_dir out/bert/${dataset} \
 done
