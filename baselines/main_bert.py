@@ -280,7 +280,18 @@ def train(
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
                 logger.info("Saving best model to %s", output_dir)
-                model.save_pretrained(output_dir, params=state.params)
+                
+                devices = jax.local_devices()
+                n_devices = len(devices)
+                unreplicated_params = jax.tree.map(
+                    lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x, 
+                    state.params
+                )
+                
+                save_model = MODEL_CLASS()
+                save_model.params = unreplicated_params
+                save_model.save_pretrained(output_dir)
+                
                 with open(os.path.join(output_dir, "training_args.json"), 'w') as f:
                     json.dump(vars(args), f, indent=2)
             else:
@@ -426,9 +437,9 @@ def process_strategy(
     test_dataset: Optional[Dataset] = None,
 ) -> Tuple[str, Dict[str, Dict[str, Any]]]:
     logger.info(f"Training for strategy {strategy}")
-    strategy_output_dir = os.path.join(output_dir, strategy)
-    if not os.path.exists(strategy_output_dir):
-        os.makedirs(strategy_output_dir)
+    args.output_dir = os.path.join(output_dir, strategy)
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
     set_seeds(args.seed)
 
@@ -439,17 +450,22 @@ def process_strategy(
         global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset)
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
-        model = FlaxBertForSequenceClassification.from_pretrained(os.path.join(strategy_output_dir, 'best'), num_labels=2)
+        best_model_path = os.path.join(args.output_dir, 'best')
+        model = FlaxBertForSequenceClassification.from_pretrained(
+            best_model_path, 
+            num_labels=2,
+            local_files_only=True
+        )
         
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0, args.learning_rate))
 
     if not args.no_eval and val_dataset is not None:
         results['val'] = evaluate(state, val_dataset, mode="val", prefix='final')
-        write_json_file(results['val'], os.path.join(strategy_output_dir, 'results_val.json'))
+        write_json_file(results['val'], os.path.join(args.output_dir, 'results_val.json'))
 
     if not args.no_test and test_dataset is not None:
         results['test'] = evaluate(state, test_dataset, mode="test", prefix='final')
-        write_json_file(results['test'], os.path.join(strategy_output_dir, 'results_test.json'))
+        write_json_file(results['test'], os.path.join(args.output_dir, 'results_test.json'))
 
     return strategy, results
 
