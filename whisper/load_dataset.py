@@ -20,7 +20,7 @@ def load_dataset(
     feature_extractor: WhisperFeatureExtractor,
     mode: str,
 ) -> Dataset:
-    all_input_ids, all_label, all_input_features, all_attention_mask = [], [], [], []
+    all_tokens, all_label, all_input_features, all_attention_mask = [], [], [], []
 
     if isinstance(args.dataset, str):
         args.dataset = (args.dataset,)
@@ -51,30 +51,19 @@ def load_dataset(
                 label = 1 if strategy in record["annotation"] else 0
                 utterance = record["utterance"]
 
-                tokens = [tokenizer.cls_token]
+                tokens = ["<|startoftranscript|>", "<|notimestamps|>", "<|startofprev|>"]
                 if args.context_size != 0:
                     for cxt in context[-args.context_size:]:
-                        tokens += cxt + ["[unused0]"]
-                    tokens += [tokenizer.sep_token]
+                        tokens += cxt + ["<|startofprev|>"]
                 context.append(tokenizer.tokenize(utterance))
-                tokens += context[-1] + [tokenizer.sep_token]
+                tokens += context[-1] + ["<|startofprev|>"]
 
                 if len(tokens) > args.max_seq_length:
-                    tokens = [tokenizer.cls_token] + tokens[-args.max_seq_length + 1:]
-
-                input_ids = tokenizer.convert_tokens_to_ids(tokens)
-                input_mask = [1] * len(input_ids)
+                    tokens = ["<|startoftranscript|>", "<|notimestamps|>", "<|startofprev|>"] + tokens[-args.max_seq_length + 3:]
 
                 assert len(tokens) <= args.max_seq_length, f"{len(tokens)}, {utterance}"
 
-                padding_length = args.max_seq_length - len(input_ids)
-                input_ids += [tokenizer.pad_token_id] * padding_length
-                input_mask += [0] * padding_length
-
-                assert len(input_ids) == args.max_seq_length
-                assert len(input_mask) == args.max_seq_length
-
-                all_input_ids.append(input_ids)
+                all_tokens.append(tokens)
                 all_label.append(label)
 
                 video_name_key = DATASET_TO_VIDEO_NAME_KEY[dataset]
@@ -83,7 +72,7 @@ def load_dataset(
                 response = requests.get(mp4_url)
                 response.raise_for_status()
                 
-                audio_array, _ = librosa.load(io.BytesIO(response.content), sr=16000)
+                audio_array, _ = librosa.load(io.BytesIO(response.content), sr=SAMPLING_RATE)
                 if len(audio_array) > MAX_SAMPLE_LENGTH:
                     audio_array = audio_array[-MAX_SAMPLE_LENGTH:]
                 
@@ -95,7 +84,7 @@ def load_dataset(
                 all_attention_mask.append(attention_mask)
 
     dataset_dict = {
-        "input_ids": np.array(all_input_ids, dtype=np.int32),
+        "tokens": all_tokens,
         "labels": np.array(all_label, dtype=np.int32),
         "input_features": np.array(all_input_features, dtype=np.float32),
         "attention_mask": np.array(all_attention_mask, dtype=np.int32),

@@ -201,7 +201,7 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="bert-werewolf", config=vars(args))
+        wandb.init(project="bert-werewolf", name=output_dir.replace("/", "-"), config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)

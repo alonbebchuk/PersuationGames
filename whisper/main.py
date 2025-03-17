@@ -128,21 +128,28 @@ def create_train_state(
         mask=decay_mask_fn,
     )
 
-    def cross_entropy_loss(logits, labels):
-        vocab_size = logits.shape[-1]
-        confidence = 1.0 - args.label_smoothing_factor
-        low_confidence = (1.0 - confidence) / (vocab_size - 1)
-        normalizing_constant = -(confidence * jnp.log(confidence) + (vocab_size - 1) * low_confidence * jnp.log(low_confidence + 1e-20))
-        soft_labels = onehot(labels, vocab_size, on_value=confidence, off_value=low_confidence)
+    # def cross_entropy_loss(logits, labels):
+    #     vocab_size = logits.shape[-1]
+    #     confidence = 1.0 - args.label_smoothing_factor
+    #     low_confidence = (1.0 - confidence) / (vocab_size - 1)
+    #     normalizing_constant = -(confidence * jnp.log(confidence) + (vocab_size - 1) * low_confidence * jnp.log(low_confidence + 1e-20))
+    #     soft_labels = onehot(labels, vocab_size, on_value=confidence, off_value=low_confidence)
 
-        loss = optax.softmax_cross_entropy(logits, soft_labels)
-        loss = loss - normalizing_constant
+    #     loss = optax.softmax_cross_entropy(logits, soft_labels)
+    #     loss = loss - normalizing_constant
 
-        padding_mask = labels >= 0
-        loss = loss * padding_mask
-        loss = loss.sum()
-        num_labels = padding_mask.sum()
-        return loss, num_labels
+    #     padding_mask = labels >= 0
+    #     loss = loss * padding_mask
+    #     loss = loss.sum()
+    #     num_labels = padding_mask.sum()
+    #     return loss, num_labels
+
+    def cross_entropy_loss(
+        logits: jnp.ndarray,
+        labels: jnp.ndarray,
+    ) -> jnp.ndarray:
+        xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
+        return jnp.mean(xentropy)
 
     return TrainState.create(
         apply_fn=model.__call__,
@@ -214,7 +221,7 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="whisper-werewolf", config=vars(args))
+        wandb.init(project="whisper-werewolf", name=output_dir.replace("/", "-"), config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -621,3 +628,61 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+completions = ["No", "Yes"]
+def create_process_sample(strategy, tokenizer):
+    prompt_format = "{context}Does the final utterance conform to the strategy: '{strategy}'?\nAnswer with a single word: Yes or No.\n"
+
+    def process_sample(sample):
+        context = tokenizer.decode(sample["input_ids"])
+        prompt = prompt_format.format(context=context, strategy=strategy)
+        result = tokenizer([prompt + completions[sample["labels"]]], padding="max_length", truncation=True, max_length=args.max_seq_length + 1, return_length=True)
+        decoder_input_ids = result.input_ids[0][:-1]
+        decoder_attention_mask = result.attention_mask[0][:-1]
+        target_tokens = result.input_ids[0][1:]
+        loss_mask = np.zeros(args.max_seq_length, dtype=np.float32)
+        loss_mask[[result.length[0] - 3, result.length[0] - 2]] = 1
+        return {
+            "decoder_input_ids": decoder_input_ids,
+            "attention_mask": decoder_attention_mask,
+            "target_tokens": target_tokens,
+            "loss_mask": loss_mask,
+            "labels": sample["labels"],
+            "input_features": sample["input_features"],
+            "attention_mask": sample["attention_mask"],
+        }
+
+    return process_sample
+
+
+
+
+def loss_and_metrics(logits, tokens, mask=None):
+    logits = logits.astype(jnp.float32)
+    
+    if mask is None:
+        mask = jnp.ones_like(tokens, dtype=jnp.float32)
+    else:
+        mask = mask.astype(jnp.float32)
+
+    total_sum = jnp.sum(mask)
+    
+    logp = jax.nn.log_softmax(logits)
+    expanded_tokens = jnp.expand_dims(tokens, axis=-1)
+    tokens_logp = jnp.take_along_axis(logp, expanded_tokens, axis=-1)
+    
+    tokens_logp = jnp.where(jnp.isnan(tokens_logp), 0, tokens_logp)
+    tokens_logp = jnp.squeeze(tokens_logp, axis=-1)
+    tokens_logp = jnp.where(mask > 0.0, tokens_logp, jnp.array(0.0))
+    tokens_logp_sum = jnp.sum(tokens_logp)
+    loss = -(tokens_logp_sum / total_sum)
+
+    correct_logits = jnp.argmax(logits, axis=-1) == tokens
+    correct_logits = jnp.where(mask > 0.0, correct_logits, jnp.array(False))
+    correct_sum = jnp.sum(correct_logits)
+    metrics = {"correct_sum": correct_sum, "total_sum": total_sum}
+    jax.debug.print("🤯 loss={loss}", loss=loss)
+
+    return loss, metrics
+
+
