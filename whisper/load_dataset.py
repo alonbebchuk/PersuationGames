@@ -1,21 +1,26 @@
+import io
 import json
+import librosa
 import os
 import requests
 import numpy as np
 from datasets import Dataset
 from typing import Any
-from transformers import BertTokenizer
+from transformers import WhisperTokenizer, WhisperFeatureExtractor
 
+DATASET_TO_VIDEO_NAME_KEY = {"Ego4d": "EG_ID", "Youtube": "video_name"}
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
-
+SAMPLING_RATE = 16000
+MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
 
 def load_dataset(
     args: Any,
     strategy: str,
-    tokenizer: BertTokenizer,
+    tokenizer: WhisperTokenizer,
+    feature_extractor: WhisperFeatureExtractor,
     mode: str,
 ) -> Dataset:
-    all_input_ids, all_input_mask, all_label = [], [], []
+    all_input_ids, all_label, all_input_features, all_attention_mask = [], [], [], []
 
     if isinstance(args.dataset, str):
         args.dataset = (args.dataset,)
@@ -70,13 +75,30 @@ def load_dataset(
                 assert len(input_mask) == args.max_seq_length
 
                 all_input_ids.append(input_ids)
-                all_input_mask.append(input_mask)
                 all_label.append(label)
+
+                video_name_key = DATASET_TO_VIDEO_NAME_KEY[dataset]
+                mp4_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/videos/{game[video_name_key]}_{game['Game_ID']}_{record['Rec_Id']}.mp4"
+                
+                response = requests.get(mp4_url)
+                response.raise_for_status()
+                
+                audio_array, _ = librosa.load(io.BytesIO(response.content), sr=16000)
+                if len(audio_array) > MAX_SAMPLE_LENGTH:
+                    audio_array = audio_array[-MAX_SAMPLE_LENGTH:]
+                
+                features = feature_extractor(audio_array, sampling_rate=SAMPLING_RATE, return_tensors="np")
+                input_features = features.input_features.squeeze()
+                attention_mask = features.attention_mask.squeeze()
+                
+                all_input_features.append(input_features)
+                all_attention_mask.append(attention_mask)
 
     dataset_dict = {
         "input_ids": np.array(all_input_ids, dtype=np.int32),
-        "attention_mask": np.array(all_input_mask, dtype=np.int32),
         "labels": np.array(all_label, dtype=np.int32),
+        "input_features": np.array(all_input_features, dtype=np.float32),
+        "attention_mask": np.array(all_attention_mask, dtype=np.int32),
     }
 
     return Dataset.from_dict(dataset_dict)
