@@ -214,7 +214,7 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project=output_dir.replace("/", "_"), config=vars(args))
+        wandb.init(project="whisper-werewolf", config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -304,7 +304,7 @@ def train(
                 tb_writer.add_scalar("lr", current_lr, global_step)
                 tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                 if worker_id == 0:
-                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr})
+                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr, "epoch": epoch})
                 logging_loss = tr_loss
                 logger.info("logging train info!!!")
                 logger.info("*")
@@ -313,8 +313,8 @@ def train(
             results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
             for key, value in results.items():
                 tb_writer.add_scalar("eval_{}".format(key), value, epoch)
-                if worker_id == 0:
-                    wandb.log({"eval_{}".format(key): value})
+            if worker_id == 0:
+                wandb.log({**{f"eval_{key}": value for key, value in results.items()}, "epoch": epoch})
             logging_loss = tr_loss
             logger.info(f"{results}")
 
