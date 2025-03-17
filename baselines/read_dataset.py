@@ -41,7 +41,11 @@ def load_werewolf_dataset(
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Invalid mode: {mode}. Must be one of {SUPPORTED_MODES}")
 
-    all_input_ids, all_input_mask, all_label, all_audio_features = [], [], [], []
+    is_whisper_dataset = feature_extractor is not None
+
+    all_input_ids, all_input_mask, all_label = [], [], []
+    if is_whisper_dataset:
+        all_input_features, all_attention_mask = [], [], []
 
     if isinstance(args.dataset, str):
         args.dataset = (args.dataset,)
@@ -83,6 +87,10 @@ def load_werewolf_dataset(
                 context.append(tokenizer.tokenize(utterance))
                 tokens += context[-1] + [tokenizer.sep_token]
 
+                if is_whisper_dataset:
+                    completion_token = "Yes" if strategy in record["annotation"] else "No"
+                    tokens.append(completion_token)
+
                 if len(tokens) > args.max_seq_length:
                     tokens = [tokenizer.cls_token] + tokens[-args.max_seq_length + 1:]
 
@@ -100,9 +108,15 @@ def load_werewolf_dataset(
 
                 all_input_ids.append(input_ids)
                 all_input_mask.append(input_mask)
+
+                if is_whisper_dataset:
+                    label = [-100] * len(input_ids)
+                    completion_position = len(tokens) - 1
+                    label[completion_position] = input_ids[completion_position]
+
                 all_label.append(label)
 
-                if feature_extractor is not None:
+                if is_whisper_dataset:
                     video_id = game[SUPPORTED_DATASETS_TO_VIDEO_NAME[dataset]]
                     mp4_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/videos/{video_id}_{game['Game_ID']}_{rid}.mp4"
                     
@@ -118,15 +132,25 @@ def load_werewolf_dataset(
                         audio = audio[-MAX_SAMPLES:]
                     os.remove(temp_path)
                     
-                    audio_features = feature_extractor(audio, sampling_rate=sr).input_features[0]
-                    all_audio_features.append(audio_features)
+                    audio_features = feature_extractor(audio, sampling_rate=sr)
+                    input_features = audio_features["input_features"][0]
+                    attention_mask = audio_features["attention_mask"][0]
+                    all_input_features.append(input_features)
+                    all_attention_mask.append(attention_mask)
 
-    dataset_dict = {
-        "input_ids": np.array(all_input_ids, dtype=np.int32),
-        "attention_mask": np.array(all_input_mask, dtype=np.int32),
-        "labels": np.array(all_label, dtype=np.int32)
-    }
-    if feature_extractor is not None:
-        dataset_dict["audio_features"] = np.array(all_audio_features, dtype=np.float32)
+    if not is_whisper_dataset:
+        dataset_dict = {
+            "input_ids": np.array(all_input_ids, dtype=np.int32),
+            "attention_mask": np.array(all_input_mask, dtype=np.int32),
+            "labels": np.array(all_label, dtype=np.int32)
+        }
+    else:
+        dataset_dict = {
+            "input_features": np.array(all_input_features, dtype=np.float32),
+            "attention_mask": np.array(all_attention_mask, dtype=np.int32),
+            "decoder_input_ids": np.array(all_input_ids, dtype=np.int32),
+            "decoder_attention_mask": np.array(all_input_mask, dtype=np.int32),
+            "labels": np.array(all_label, dtype=np.int32),
+        }
     
     return Dataset.from_dict(dataset_dict)
