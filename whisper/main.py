@@ -32,9 +32,11 @@ from datasets import Dataset, DatasetDict
 def FEATURE_EXTRACTOR_CLASS() -> WhisperFeatureExtractor:
     return WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
 
+
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
     whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
     return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small", config=whisper_config)
+
 
 def TOKENIZER_CLASS() -> WhisperTokenizer:
     return WhisperTokenizer.from_pretrained("openai/whisper-small")
@@ -44,7 +46,7 @@ logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 # required
-parser.add_argument("--dataset", type=str, help="Name of dataset, Ego4D or Youtube")
+parser.add_argument("--dataset", type=str,help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
 parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation during training.")
 parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the val set.")
@@ -127,7 +129,22 @@ def create_train_state(
     )
 
     def logits_fn(logits: jnp.ndarray) -> jnp.ndarray:
-        return
+        tokenizer = TOKENIZER_CLASS()
+        yes_token_id = tokenizer.convert_tokens_to_ids(["Yes"])[0]
+        no_token_id = tokenizer.convert_tokens_to_ids(["No"])[0]
+
+        completion_position = -2
+        completion_logits = logits[:, completion_position, :]
+
+        yes_logits = completion_logits[:, yes_token_id]
+        no_logits = completion_logits[:, no_token_id]
+
+        yes_no_logits = jnp.stack([
+            no_logits - yes_logits,
+            yes_logits - no_logits,
+        ], axis=1)
+
+        return yes_no_logits
 
     def cross_entropy_loss(
         logits: jnp.ndarray,
@@ -255,7 +272,8 @@ def train(
                 train=True,
                 dropout_rng=dropout_rng,
             )
-            return state.loss_fn(outputs.logits, batch["labels"])
+            logits = state.logits_fn(outputs.logits)
+            return state.loss_fn(logits, batch["labels"])
 
         grad_fn = jax.value_and_grad(loss_fn)
         loss, grads = grad_fn(state.params)
@@ -401,8 +419,9 @@ def evaluate(
             attention_mask=batch["attention_mask"],
             train=False,
         )
-        loss = eval_state.loss_fn(outputs.logits, batch["labels"])
-        pred = eval_state.logits_fn(outputs.logits)
+        logits = eval_state.logits_fn(outputs.logits)
+        loss = eval_state.loss_fn(logits, batch["labels"])
+        pred = logits.argmax(-1)
 
         running_loss += loss.item()
 
