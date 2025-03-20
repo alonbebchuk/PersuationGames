@@ -7,11 +7,13 @@ import numpy as np
 from datasets import Dataset
 from typing import Any
 from transformers import WhisperTokenizer, WhisperFeatureExtractor
+from whisper.prompt_builder import PromptBuilder
 
 DATASET_TO_VIDEO_NAME_KEY = {"Ego4d": "EG_ID", "Youtube": "video_name"}
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 SAMPLING_RATE = 16000
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
+
 
 def load_dataset(
     args: Any,
@@ -20,13 +22,15 @@ def load_dataset(
     feature_extractor: WhisperFeatureExtractor,
     mode: str,
 ) -> Dataset:
-    all_tokens, all_label, all_input_features, all_attention_mask = [], [], [], []
+    all_input_ids, all_input_mask, all_input_features, all_attention_mask, all_label = [], [], [], [], []
 
     if isinstance(args.dataset, str):
         args.dataset = (args.dataset,)
 
+    prompt_builder = PromptBuilder(args, tokenizer, strategy)
+
     for dataset in args.dataset:
-        local_path = os.path.join("bert", "data", dataset, f"{mode}.json")
+        local_path = os.path.join("whisper", "data", dataset, f"{mode}.json")
         if os.path.exists(local_path):
             with open(local_path, "r") as f:
                 games = json.load(f)
@@ -49,45 +53,47 @@ def load_dataset(
             for record in dialogues:
                 id += 1
                 label = 1 if strategy in record["annotation"] else 0
-                utterance = record["utterance"]
+                utterance = record["utterance"] + "\n"
 
-                tokens = ["<|startoftranscript|>", "<|notimestamps|>", "<|startofprev|>"]
-                if args.context_size != 0:
-                    for cxt in context[-args.context_size:]:
-                        tokens += cxt + ["<|startofprev|>"]
-                context.append(tokenizer.tokenize(utterance))
-                tokens += context[-1] + ["<|startofprev|>"]
+                utterance_tokens = tokenizer.tokenize(utterance)
+                tokens = prompt_builder.build_prompt_tokens(label, context, utterance_tokens)
+                context.append(utterance_tokens)
 
-                if len(tokens) > args.max_seq_length:
-                    tokens = ["<|startoftranscript|>", "<|notimestamps|>", "<|startofprev|>"] + tokens[-args.max_seq_length + 3:]
+                input_ids = tokenizer.convert_tokens_to_ids(tokens)
+                input_mask = [1] * len(input_ids)
 
-                assert len(tokens) <= args.max_seq_length, f"{len(tokens)}, {utterance}"
+                padding_length = args.max_seq_length - len(input_ids)
+                input_ids += [tokenizer.pad_token_id] * padding_length
+                input_mask += [0] * padding_length
 
-                all_tokens.append(tokens)
-                all_label.append(label)
+                assert len(input_ids) == args.max_seq_length
+                assert len(input_mask) == args.max_seq_length
 
                 video_name_key = DATASET_TO_VIDEO_NAME_KEY[dataset]
                 mp4_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/videos/{game[video_name_key]}_{game['Game_ID']}_{record['Rec_Id']}.mp4"
-                
+
                 response = requests.get(mp4_url)
                 response.raise_for_status()
-                
+
                 audio_array, _ = librosa.load(io.BytesIO(response.content), sr=SAMPLING_RATE)
-                if len(audio_array) > MAX_SAMPLE_LENGTH:
-                    audio_array = audio_array[-MAX_SAMPLE_LENGTH:]
-                
+                audio_array = audio_array[-MAX_SAMPLE_LENGTH:]
+
                 features = feature_extractor(audio_array, sampling_rate=SAMPLING_RATE, return_tensors="np")
                 input_features = features.input_features.squeeze()
                 attention_mask = features.attention_mask.squeeze()
-                
+
+                all_input_ids.append(input_ids)
+                all_input_mask.append(input_mask)
                 all_input_features.append(input_features)
                 all_attention_mask.append(attention_mask)
+                all_label.append(label)
 
     dataset_dict = {
-        "tokens": all_tokens,
-        "labels": np.array(all_label, dtype=np.int32),
+        "decoder_input_ids": np.array(all_input_ids, dtype=np.int32),
+        "decoder_attention_mask": np.array(all_input_mask, dtype=np.int32),
         "input_features": np.array(all_input_features, dtype=np.float32),
         "attention_mask": np.array(all_attention_mask, dtype=np.int32),
+        "labels": np.array(all_label, dtype=np.int32),
     }
 
     return Dataset.from_dict(dataset_dict)

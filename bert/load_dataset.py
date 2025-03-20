@@ -46,21 +46,17 @@ def load_dataset(
                 label = 1 if strategy in record["annotation"] else 0
                 utterance = record["utterance"]
 
-                tokens = [tokenizer.cls_token]
+                tokens = []
                 if args.context_size != 0:
                     for cxt in context[-args.context_size:]:
                         tokens += cxt + ["[unused0]"]
                     tokens += [tokenizer.sep_token]
                 context.append(tokenizer.tokenize(utterance))
-                tokens += context[-1] + [tokenizer.sep_token]
-
-                if len(tokens) > args.max_seq_length:
-                    tokens = [tokenizer.cls_token] + tokens[-args.max_seq_length + 1:]
+                tokens += context[-1]
+                tokens = [tokenizer.cls_token] + tokens[-args.max_seq_length + 2:] + [tokenizer.sep_token]
 
                 input_ids = tokenizer.convert_tokens_to_ids(tokens)
                 input_mask = [1] * len(input_ids)
-
-                assert len(tokens) <= args.max_seq_length, f"{len(tokens)}, {utterance}"
 
                 padding_length = args.max_seq_length - len(input_ids)
                 input_ids += [tokenizer.pad_token_id] * padding_length

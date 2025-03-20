@@ -17,9 +17,8 @@ from flax.training.common_utils import onehot
 from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
-from transformers import FlaxWhisperForConditionalGeneration, WhisperFeatureExtractor, WhisperTokenizer
+from transformers import FlaxWhisperForConditionalGeneration, WhisperConfig, WhisperFeatureExtractor, WhisperTokenizer
 from typing import (
     Any,
     Callable,
@@ -34,8 +33,8 @@ def FEATURE_EXTRACTOR_CLASS() -> WhisperFeatureExtractor:
     return WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
 
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
-    return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
-
+    whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
+    return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small", config=whisper_config)
 
 def TOKENIZER_CLASS() -> WhisperTokenizer:
     return WhisperTokenizer.from_pretrained("openai/whisper-small")
@@ -61,11 +60,10 @@ parser.add_argument("--context_size", type=int, default=5, help="Size of the con
 parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
 parser.add_argument("--eval_batch_size", default=256, type=int, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
-parser.add_argument("--label_smoothing_factor", default=0.0, type=float, help="Label smoothing factor.")
 parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-parser.add_argument("--max_seq_length", default=256, type=int, help="The maximum sequence length for the model.")
+parser.add_argument("--max_seq_length", default=2048, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
@@ -128,21 +126,8 @@ def create_train_state(
         mask=decay_mask_fn,
     )
 
-    # def cross_entropy_loss(logits, labels):
-    #     vocab_size = logits.shape[-1]
-    #     confidence = 1.0 - args.label_smoothing_factor
-    #     low_confidence = (1.0 - confidence) / (vocab_size - 1)
-    #     normalizing_constant = -(confidence * jnp.log(confidence) + (vocab_size - 1) * low_confidence * jnp.log(low_confidence + 1e-20))
-    #     soft_labels = onehot(labels, vocab_size, on_value=confidence, off_value=low_confidence)
-
-    #     loss = optax.softmax_cross_entropy(logits, soft_labels)
-    #     loss = loss - normalizing_constant
-
-    #     padding_mask = labels >= 0
-    #     loss = loss * padding_mask
-    #     loss = loss.sum()
-    #     num_labels = padding_mask.sum()
-    #     return loss, num_labels
+    def logits_fn(logits: jnp.ndarray) -> jnp.ndarray:
+        return
 
     def cross_entropy_loss(
         logits: jnp.ndarray,
@@ -155,7 +140,7 @@ def create_train_state(
         apply_fn=model.__call__,
         params=model.params,
         tx=optimizer,
-        logits_fn=lambda logits: logits.argmax(-1),
+        logits_fn=logits_fn,
         loss_fn=cross_entropy_loss,
     )
 
@@ -178,7 +163,9 @@ def collate_fn(
     batch: List[Dict[str, np.ndarray]],
 ) -> Dict[str, np.ndarray]:
     return {
-        "input_ids": np.array([x["input_ids"] for x in batch]),
+        "decoder_input_ids": np.array([x["decoder_input_ids"] for x in batch]),
+        "decoder_attention_mask": np.array([x["decoder_attention_mask"] for x in batch]),
+        "input_features": np.array([x["input_features"] for x in batch]),
         "attention_mask": np.array([x["attention_mask"] for x in batch]),
         "labels": np.array([x["labels"] for x in batch]),
     }
@@ -217,8 +204,6 @@ def train(
     val_dataset: Dataset,
     output_dir: str,
 ) -> Tuple[int, float, float]:
-    tb_writer = SummaryWriter(output_dir)
-
     worker_id = jax.process_index()
     if worker_id == 0:
         wandb.init(project="whisper-werewolf", name=output_dir.replace("/", "-"), config=vars(args))
@@ -263,7 +248,9 @@ def train(
         ) -> jnp.ndarray:
             outputs = state.apply_fn(
                 **{"params": params},
-                input_ids=batch["input_ids"],
+                decoder_input_ids=batch["decoder_input_ids"],
+                decoder_attention_mask=batch["decoder_attention_mask"],
+                input_features=batch["input_features"],
                 attention_mask=batch["attention_mask"],
                 train=True,
                 dropout_rng=dropout_rng,
@@ -308,20 +295,16 @@ def train(
                 if isinstance(current_lr, jnp.ndarray):
                     current_lr = np.array(current_lr)
 
-                tb_writer.add_scalar("lr", current_lr, global_step)
-                tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                 if worker_id == 0:
-                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr, "epoch": epoch})
+                    wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr})
                 logging_loss = tr_loss
                 logger.info("logging train info!!!")
                 logger.info("*")
 
         if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
             results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
-            for key, value in results.items():
-                tb_writer.add_scalar("eval_{}".format(key), value, epoch)
             if worker_id == 0:
-                wandb.log({**{f"eval_{key}": value for key, value in results.items()}, "epoch": epoch})
+                wandb.log({f"eval_{key}": value for key, value in results.items()})
             logging_loss = tr_loss
             logger.info(f"{results}")
 
@@ -351,7 +334,6 @@ def train(
                     train_iterator.close()
                     break
 
-    tb_writer.close()
     if worker_id == 0:
         wandb.finish()
 
@@ -413,7 +395,9 @@ def evaluate(
 
         outputs = eval_state.apply_fn(
             **{"params": eval_state.params},
-            input_ids=batch["input_ids"],
+            decoder_input_ids=batch["decoder_input_ids"],
+            decoder_attention_mask=batch["decoder_attention_mask"],
+            input_features=batch["input_features"],
             attention_mask=batch["attention_mask"],
             train=False,
         )
@@ -509,9 +493,10 @@ def process_strategy(
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
         best_model_path = os.path.join(output_dir, "best")
-        model = FlaxBertForSequenceClassification.from_pretrained(
+        whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
+        model = FlaxWhisperForConditionalGeneration.from_pretrained(
             best_model_path,
-            num_labels=2,
+            config=whisper_config,
             local_files_only=True,
         )
 
@@ -628,61 +613,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-completions = ["No", "Yes"]
-def create_process_sample(strategy, tokenizer):
-    prompt_format = "{context}Does the final utterance conform to the strategy: '{strategy}'?\nAnswer with a single word: Yes or No.\n"
-
-    def process_sample(sample):
-        context = tokenizer.decode(sample["input_ids"])
-        prompt = prompt_format.format(context=context, strategy=strategy)
-        result = tokenizer([prompt + completions[sample["labels"]]], padding="max_length", truncation=True, max_length=args.max_seq_length + 1, return_length=True)
-        decoder_input_ids = result.input_ids[0][:-1]
-        decoder_attention_mask = result.attention_mask[0][:-1]
-        target_tokens = result.input_ids[0][1:]
-        loss_mask = np.zeros(args.max_seq_length, dtype=np.float32)
-        loss_mask[[result.length[0] - 3, result.length[0] - 2]] = 1
-        return {
-            "decoder_input_ids": decoder_input_ids,
-            "attention_mask": decoder_attention_mask,
-            "target_tokens": target_tokens,
-            "loss_mask": loss_mask,
-            "labels": sample["labels"],
-            "input_features": sample["input_features"],
-            "attention_mask": sample["attention_mask"],
-        }
-
-    return process_sample
-
-
-
-
-def loss_and_metrics(logits, tokens, mask=None):
-    logits = logits.astype(jnp.float32)
-    
-    if mask is None:
-        mask = jnp.ones_like(tokens, dtype=jnp.float32)
-    else:
-        mask = mask.astype(jnp.float32)
-
-    total_sum = jnp.sum(mask)
-    
-    logp = jax.nn.log_softmax(logits)
-    expanded_tokens = jnp.expand_dims(tokens, axis=-1)
-    tokens_logp = jnp.take_along_axis(logp, expanded_tokens, axis=-1)
-    
-    tokens_logp = jnp.where(jnp.isnan(tokens_logp), 0, tokens_logp)
-    tokens_logp = jnp.squeeze(tokens_logp, axis=-1)
-    tokens_logp = jnp.where(mask > 0.0, tokens_logp, jnp.array(0.0))
-    tokens_logp_sum = jnp.sum(tokens_logp)
-    loss = -(tokens_logp_sum / total_sum)
-
-    correct_logits = jnp.argmax(logits, axis=-1) == tokens
-    correct_logits = jnp.where(mask > 0.0, correct_logits, jnp.array(False))
-    correct_sum = jnp.sum(correct_logits)
-    metrics = {"correct_sum": correct_sum, "total_sum": total_sum}
-    jax.debug.print("🤯 loss={loss}", loss=loss)
-
-    return loss, metrics
-
-
