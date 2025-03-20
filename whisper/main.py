@@ -12,6 +12,7 @@ import random
 import wandb
 from collections import defaultdict
 from flax import struct, traverse_util
+from datasets import Dataset, DatasetDict
 from flax.training import train_state
 from flax.training.common_utils import onehot
 from load_dataset import load_dataset
@@ -26,7 +27,6 @@ from typing import (
     List,
     Tuple,
 )
-from datasets import Dataset, DatasetDict
 
 
 def FEATURE_EXTRACTOR_CLASS() -> WhisperFeatureExtractor:
@@ -34,9 +34,9 @@ def FEATURE_EXTRACTOR_CLASS() -> WhisperFeatureExtractor:
 
 
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
-    whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
-    return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small", config=whisper_config)
-
+    # whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
+    # return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small", config=whisper_config)
+    return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
 
 def TOKENIZER_CLASS() -> WhisperTokenizer:
     return WhisperTokenizer.from_pretrained("openai/whisper-small")
@@ -65,7 +65,7 @@ parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate eve
 parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-parser.add_argument("--max_seq_length", default=2048, type=int, help="The maximum sequence length for the model.")
+parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
@@ -133,7 +133,7 @@ def create_train_state(
         yes_token_id = tokenizer.convert_tokens_to_ids(["Yes"])[0]
         no_token_id = tokenizer.convert_tokens_to_ids(["No"])[0]
 
-        completion_position = -2
+        completion_position = -1
         completion_logits = logits[:, completion_position, :]
 
         yes_logits = completion_logits[:, yes_token_id]
@@ -512,10 +512,10 @@ def process_strategy(
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
         best_model_path = os.path.join(output_dir, "best")
-        whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
+        # whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
         model = FlaxWhisperForConditionalGeneration.from_pretrained(
             best_model_path,
-            config=whisper_config,
+            # config=whisper_config,
             local_files_only=True,
         )
 
@@ -534,16 +534,17 @@ def process_strategy(
 
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
     base_tokenizer = TOKENIZER_CLASS()
+    base_feature_extractor = FEATURE_EXTRACTOR_CLASS()
     strategy_datasets = {}
 
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
         if not args.no_train:
-            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, base_tokenizer, mode="train")
+            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, base_tokenizer, base_feature_extractor, mode="train")
         if not args.no_eval:
-            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, base_tokenizer, mode="val")
+            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, base_tokenizer, base_feature_extractor, mode="val")
         if not args.no_test:
-            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, base_tokenizer, mode="test")
+            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, base_tokenizer, base_feature_extractor, mode="test")
 
     return strategy_datasets
 

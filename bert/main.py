@@ -11,6 +11,7 @@ import pandas as pd
 import random
 import wandb
 from collections import defaultdict
+from datasets import Dataset, DatasetDict
 from flax import struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
@@ -26,7 +27,6 @@ from typing import (
     List,
     Tuple,
 )
-from datasets import Dataset, DatasetDict
 
 
 def MODEL_CLASS() -> FlaxBertForSequenceClassification:

@@ -1,10 +1,10 @@
 import json
+import numpy as np
 import os
 import requests
-import numpy as np
 from datasets import Dataset
-from typing import Any
 from transformers import BertTokenizer
+from typing import Any
 
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 
