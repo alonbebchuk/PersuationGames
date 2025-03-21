@@ -132,10 +132,10 @@ def load_dataset(
                 end_id = i + 1
                 if "sample" in dialogues[i]:
                     record_start_sample = dialogues[start_id]["sample"]
-                    record_end_sample = dialogues[end_id]["sample"] if end_id <= len(dialogues) else len(audio_array)
+                    record_end_sample = dialogues[end_id]["sample"] if end_id < len(dialogues) else len(audio_array)
                 else:
                     record_start_sample = timestamp_to_sample(dialogues[start_id]["timestamp"])
-                    record_end_sample = timestamp_to_sample(dialogues[end_id]["timestamp"]) if end_id <= len(dialogues) else len(audio_array)
+                    record_end_sample = timestamp_to_sample(dialogues[end_id]["timestamp"]) if end_id < len(dialogues) else len(audio_array)
                 record_audio_array = audio_array[record_start_sample:record_end_sample][-MAX_SAMPLE_LENGTH:]
 
                 features = feature_extractor(record_audio_array, sampling_rate=SAMPLING_RATE, return_attention_mask=True, return_tensors="np")
