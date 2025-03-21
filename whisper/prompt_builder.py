@@ -11,7 +11,7 @@ Strategy Definition:
 PROMPT_UTTERANCE_PREFIX = "Utterance -> "
 PROMPT_PREVIOUS_UTTERANCES_PREFIX = """Previous Utterances:
 """
-PROMPT_LAST_UTTERANCE_PREFIX = """Last Utterance:
+PROMPT_LAST_UTTERANCE_PREFIX = f"""Last Utterance:
 {PROMPT_UTTERANCE_PREFIX}"""
 PROMPT_SUFFIX = """
 Strategy: {strategy}
