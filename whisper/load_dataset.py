@@ -7,13 +7,69 @@ import tempfile
 from datasets import Dataset
 from prompt_builder import PromptBuilder
 from pydub import AudioSegment
-from typing import Any
 from transformers import WhisperTokenizer, WhisperFeatureExtractor
+from typing import Any
 
-DATASET_TO_VIDEO_NAME_KEY = {"Ego4D": "EG_ID", "Youtube": "video_name"}
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 SAMPLING_RATE = 16000
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
+
+
+def get_audio_array(mp4_url: str) -> np.ndarray:
+    response = requests.get(mp4_url)
+    response.raise_for_status()
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4") as temp_mp4_file, tempfile.NamedTemporaryFile(suffix=".wav") as temp_wav_file:
+        temp_mp4_file.write(response.content)
+        temp_mp4_file.flush()
+
+        audio = AudioSegment.from_file(temp_mp4_file.name, format="mp4")
+        audio.export(temp_wav_file.name, format="wav")
+
+        audio_array, _ = librosa.load(temp_wav_file.name, sr=SAMPLING_RATE)
+
+    return audio_array
+
+
+def get_youtube_audio_array(game: dict) -> np.ndarray:
+    mp4_url = f"{HUGGINGFACE_DATASET_URL}/Youtube/videos/{game['video_name']}_{game['Game_ID']}.mp4"
+    return get_audio_array(mp4_url)
+
+
+def timestamp_to_sample(timestamp: str) -> int:
+    m, s = map(int, timestamp.split(":"))
+    return (m * 60 + s) * SAMPLING_RATE
+
+
+def get_ego4d_audio_array(game: dict) -> np.ndarray:
+    game_timestamp_url = f"{HUGGINGFACE_DATASET_URL}/Ego4D/game_timestamp/{game['EG_ID']}.txt"
+    response = requests.get(game_timestamp_url)
+    response.raise_for_status()
+
+    num_splits = sum(line.split()[0] == game["Game_ID"] for line in response.text.strip().split("\n"))
+
+    mp4_urls = [
+        f"{HUGGINGFACE_DATASET_URL}/Ego4D/videos/{game['EG_ID']}_{game['Game_ID']}_{i + 1}.mp4"
+        for i in range(num_splits)
+    ]
+    audio_arrays = [get_audio_array(mp4_url) for mp4_url in mp4_urls]
+
+    split = 0
+    sample_offset = 0
+    for i, dialogue in enumerate(game["Dialogue"]):
+        if i != 0 and dialogue["timestamp"] == "00:00":
+            sample_offset += len(audio_arrays[split])
+            split += 1
+        dialogue["sample"] = timestamp_to_sample(dialogue["timestamp"]) + sample_offset
+
+    audio_array = np.concatenate(audio_arrays)
+    return audio_array
+
+
+DATASET_TO_GET_AUDIO_ARRAY = {
+    "Ego4D": get_ego4d_audio_array,
+    "Youtube": get_youtube_audio_array,
+}
 
 
 def load_dataset(
@@ -47,19 +103,20 @@ def load_dataset(
                 json.dump(games, f)
 
         for game in games:
-            video_name_key = DATASET_TO_VIDEO_NAME_KEY[dataset]
-            mp4_urls = [f"{HUGGINGFACE_DATASET_URL}/{dataset}/videos/{game[video_name_key]}_{game['Game_ID']}_{rid + 1}.mp4" for rid in range(2)]
+            audio_array = DATASET_TO_GET_AUDIO_ARRAY[dataset](game)
 
             dialogues = game["Dialogue"]
-            context = [[]] * args.context_size
+            previous_utterence_tokens_list = []
 
-            for record in dialogues:
+            for i, record in enumerate(dialogues):
                 label = 1 if strategy in record["annotation"] else 0
                 utterance = record["utterance"] + "\n"
 
                 utterance_tokens = tokenizer.tokenize(utterance)
-                tokens = prompt_builder.build_prompt_tokens(context, utterance_tokens)
-                context.append(utterance_tokens)
+                tokens = prompt_builder.build_prompt_tokens(previous_utterence_tokens_list, utterance_tokens)
+                if len(previous_utterence_tokens_list) == args.context_size:
+                    previous_utterence_tokens_list.pop(0)
+                previous_utterence_tokens_list.append(utterance_tokens)
 
                 input_ids = tokenizer.convert_tokens_to_ids(tokens)
                 input_mask = [1] * len(input_ids)
@@ -71,22 +128,17 @@ def load_dataset(
                 assert len(input_ids) == args.max_seq_length
                 assert len(input_mask) == args.max_seq_length
 
-                video_name_key = DATASET_TO_VIDEO_NAME_KEY[dataset]
-                mp4_url = f"{HUGGINGFACE_DATASET_URL}/{dataset}/videos/{game[video_name_key]}_{game['Game_ID']}_{record['Rec_Id'] - 1}.mp4"
+                start_id = max(0, i - args.context_size)
+                end_id = i + 1
+                if "sample" in dialogues[i]:
+                    record_start_sample = dialogues[start_id]["sample"]
+                    record_end_sample = dialogues[end_id]["sample"] if end_id <= len(dialogues) else len(audio_array)
+                else:
+                    record_start_sample = timestamp_to_sample(dialogues[start_id]["timestamp"])
+                    record_end_sample = timestamp_to_sample(dialogues[end_id]["timestamp"]) if end_id <= len(dialogues) else len(audio_array)
+                record_audio_array = audio_array[record_start_sample:record_end_sample][-MAX_SAMPLE_LENGTH:]
 
-                with tempfile.NamedTemporaryFile(suffix='.mp4') as temp_mp4_file, tempfile.NamedTemporaryFile(suffix='.wav') as temp_wav_file:
-                    response = requests.get(mp4_url)
-                    response.raise_for_status()
-                    temp_mp4_file.write(response.content)
-                    temp_mp4_file.flush()
-                    
-                    audio = AudioSegment.from_file(temp_mp4_file.name, format="mp4")
-                    audio.export(temp_wav_file.name, format="wav")
-                    
-                    audio_array, _ = librosa.load(temp_wav_file.name, sr=SAMPLING_RATE)
-                    audio_array = audio_array[-MAX_SAMPLE_LENGTH:]
-
-                features = feature_extractor(audio_array, sampling_rate=SAMPLING_RATE, return_attention_mask=True, return_tensors="np")
+                features = feature_extractor(record_audio_array, sampling_rate=SAMPLING_RATE, return_attention_mask=True, return_tensors="np")
                 input_features = features.input_features.squeeze()
                 attention_mask = features.attention_mask.squeeze()
 

@@ -8,10 +8,11 @@ Strategy Definition:
 {strategy} - {strategy_definition}.
 
 """
-PROMPT_PREVIOUS_UTTERANCES = """Previous Utterances:
+PROMPT_UTTERANCE_PREFIX = "Utterance -> "
+PROMPT_PREVIOUS_UTTERANCES_PREFIX = """Previous Utterances:
 """
-PROMPT_LAST_UTTERANCE = """Last Utterance:
-"""
+PROMPT_LAST_UTTERANCE_PREFIX = """Last Utterance:
+{PROMPT_UTTERANCE_PREFIX}"""
 PROMPT_SUFFIX = """
 Strategy: {strategy}
 
@@ -37,36 +38,39 @@ class PromptBuilder:
         self.prompt_prefix_tokens = ["<|startoftranscript|>", "<|notimestamps|>"] + tokenizer.tokenize(prompt_prefix)
         self.prompt_prefix_length = len(self.prompt_prefix_tokens)
 
-        self.prompt_previous_utterances_tokens = tokenizer.tokenize(PROMPT_PREVIOUS_UTTERANCES)
-        self.prompt_previous_utterances_length = len(self.prompt_previous_utterances_tokens)
+        self.utterance_prefix_tokens = tokenizer.tokenize(PROMPT_UTTERANCE_PREFIX)
+        self.utterance_prefix_length = len(self.utterance_prefix_tokens)
 
-        self.previous_utterance_prefix_tokens = {i: tokenizer.tokenize(f"{i+1}. ") for i in range(args.context_size)}
+        self.prompt_previous_utterances_prefix_tokens = tokenizer.tokenize(PROMPT_PREVIOUS_UTTERANCES_PREFIX)
+        self.prompt_previous_utterances_prefix_length = len(self.prompt_previous_utterances_prefix_tokens)
 
-        self.prompt_last_utterance_tokens = tokenizer.tokenize(PROMPT_LAST_UTTERANCE)
-        self.prompt_last_utterance_length = len(self.prompt_last_utterance_tokens)
+        self.prompt_last_utterance_prefix_tokens = tokenizer.tokenize(PROMPT_LAST_UTTERANCE_PREFIX)
+        self.prompt_last_utterance_prefix_length = len(self.prompt_last_utterance_prefix_tokens)
 
         self.prompt_suffix_tokens = tokenizer.tokenize(PROMPT_SUFFIX.format(strategy=strategy))
         self.prompt_suffix_length = len(self.prompt_suffix_tokens)
 
-    def build_prompt_tokens(self, context: list[list[str]], utterance_tokens: list[str]) -> list[str]:
+    def build_prompt_tokens(self, previous_utterance_tokens_list: list[list[str]], utterance_tokens: list[str]) -> list[str]:
         max_utterance_len = self.args.max_seq_length - \
             self.prompt_prefix_length - \
-            self.prompt_last_utterance_length - \
+            self.prompt_last_utterance_prefix_length - \
             self.prompt_suffix_length
         utterance_tokens = utterance_tokens[-max_utterance_len:]
-        last_utterance_tokens = self.prompt_last_utterance_tokens + utterance_tokens
+        last_utterance_tokens = self.prompt_last_utterance_prefix_tokens + utterance_tokens
 
-        max_context_len = max_utterance_len - \
-            len(utterance_tokens) - \
-            self.prompt_previous_utterances_length
-        if max_context_len > 0:
-            context_tokens = []
-            for i, cxt in enumerate(context[-self.args.context_size:]):
-                context_tokens += self.previous_utterance_prefix_tokens[i] + cxt
-            context_tokens = context_tokens[-max_context_len:]
-            previous_utterances_tokens = self.prompt_previous_utterances_tokens + context_tokens
-        else:
-            previous_utterances_tokens = []
+        previous_utterances_tokens = []
+        if len(previous_utterance_tokens_list) > 0:
+            max_previous_utterences_len = max_utterance_len - \
+                len(utterance_tokens) - \
+                self.prompt_previous_utterances_prefix_length
+            if max_previous_utterences_len > 0:
+                for previous_utterance_tokens in reversed(previous_utterance_tokens_list):
+                    max_previous_utterences_len -= self.utterance_prefix_length + len(previous_utterance_tokens)
+                    if max_previous_utterences_len < 0:
+                        break
+                    previous_utterances_tokens = self.utterance_prefix_tokens + previous_utterance_tokens + previous_utterances_tokens
+                if len(previous_utterances_tokens) > 0:
+                    previous_utterances_tokens = self.prompt_previous_utterances_prefix_tokens + previous_utterances_tokens
 
         tokens = self.prompt_prefix_tokens + \
             previous_utterances_tokens + \
