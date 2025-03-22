@@ -355,6 +355,9 @@ def train(
 
                 save_model = MODEL_CLASS()
                 save_model.params = unreplicated_params
+                del save_model.config.__dict__["max_length"]
+                del save_model.config.__dict__["suppress_tokens"]
+                del save_model.config.__dict__["begin_suppress_tokens"]
                 save_model.save_pretrained(output_best_dir)
 
                 with open(os.path.join(output_best_dir, "training_args.json"), "w") as f:
