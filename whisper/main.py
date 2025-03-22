@@ -15,11 +15,11 @@ from flax import struct, traverse_util
 from datasets import Dataset, DatasetDict
 from flax.training import train_state
 from flax.training.common_utils import onehot
-from load_dataset import load_dataset
+from load_dataset import get_audio_array, load_dataset, MAX_SAMPLE_LENGTH, SAMPLING_RATE
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
-from transformers import FlaxWhisperForConditionalGeneration, WhisperConfig, WhisperFeatureExtractor, WhisperTokenizer
+from transformers import FlaxWhisperForConditionalGeneration, WhisperFeatureExtractor, WhisperTokenizer
 from typing import (
     Any,
     Callable,
@@ -28,15 +28,16 @@ from typing import (
     Tuple,
 )
 
+BASE_PATH = os.path.abspath(os.path.dirname(__file__))
+STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 def FEATURE_EXTRACTOR_CLASS() -> WhisperFeatureExtractor:
     return WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
 
 
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
-    # whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
-    # return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small", config=whisper_config)
     return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+
 
 def TOKENIZER_CLASS() -> WhisperTokenizer:
     return WhisperTokenizer.from_pretrained("openai/whisper-small")
@@ -46,7 +47,7 @@ logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 # required
-parser.add_argument("--dataset", type=str,help="Name of dataset, Ego4D or Youtube")
+parser.add_argument("--dataset", type=str, help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
 parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation during training.")
 parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the val set.")
@@ -60,7 +61,7 @@ parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon fo
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
 parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
-parser.add_argument("--eval_batch_size", default=256, type=int, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", default=16, type=int, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
@@ -73,8 +74,8 @@ parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup o
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.output_dir = os.path.join("whisper", "out", args.dataset, str(args.seed))
-args.dataset_dir = os.path.join("whisper", "data", args.dataset)
+args.output_dir = f"{BASE_PATH}/out/{args.dataset}/{args.seed}"
+args.dataset_dir = f"{BASE_PATH}/data/{args.dataset}"
 
 os.makedirs(args.output_dir, exist_ok=True)
 
@@ -92,7 +93,6 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 
 class TrainState(train_state.TrainState):
@@ -179,12 +179,25 @@ def create_learning_rate_fn(
 def collate_fn(
     batch: List[Dict[str, np.ndarray]],
 ) -> Dict[str, np.ndarray]:
+    feature_extractor = FEATURE_EXTRACTOR_CLASS()
+
+    audio_arrays = []
+    for sample in batch:
+        audio_array = get_audio_array(sample["audio_path"])
+        end_sample = sample["end_sample"] if sample["end_sample"] != -1 else len(audio_array)
+        start_sample = max(sample["start_sample"], end_sample - MAX_SAMPLE_LENGTH)
+        audio_arrays.append(audio_array[start_sample:end_sample])
+
+    features = feature_extractor(audio_arrays, sampling_rate=SAMPLING_RATE, return_attention_mask=True, return_tensors="np")
+    input_features = features.input_features
+    attention_mask = features.attention_mask
+
     return {
-        "decoder_input_ids": np.array([x["decoder_input_ids"] for x in batch]),
-        "decoder_attention_mask": np.array([x["decoder_attention_mask"] for x in batch]),
-        "input_features": np.array([x["input_features"] for x in batch]),
-        "attention_mask": np.array([x["attention_mask"] for x in batch]),
-        "labels": np.array([x["labels"] for x in batch]),
+        "decoder_input_ids": np.array([sample["decoder_input_ids"] for sample in batch]),
+        "decoder_attention_mask": np.array([sample["decoder_attention_mask"] for sample in batch]),
+        "input_features": input_features,
+        "attention_mask": attention_mask,
+        "labels": np.array([sample["labels"] for sample in batch]),
     }
 
 
@@ -512,10 +525,8 @@ def process_strategy(
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
         best_model_path = os.path.join(output_dir, "best")
-        # whisper_config = WhisperConfig.from_pretrained("openai/whisper-small", max_target_positions=args.max_seq_length)
         model = FlaxWhisperForConditionalGeneration.from_pretrained(
             best_model_path,
-            # config=whisper_config,
             local_files_only=True,
         )
 
@@ -533,18 +544,17 @@ def process_strategy(
 
 
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
-    base_tokenizer = TOKENIZER_CLASS()
-    base_feature_extractor = FEATURE_EXTRACTOR_CLASS()
+    tokenizer = TOKENIZER_CLASS()
     strategy_datasets = {}
 
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
         if not args.no_train:
-            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, base_tokenizer, base_feature_extractor, mode="train")
+            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, tokenizer, mode="train")
         if not args.no_eval:
-            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, base_tokenizer, base_feature_extractor, mode="val")
+            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, tokenizer, mode="val")
         if not args.no_test:
-            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, base_tokenizer, base_feature_extractor, mode="test")
+            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, tokenizer, mode="test")
 
     return strategy_datasets
 
