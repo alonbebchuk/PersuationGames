@@ -237,7 +237,9 @@ def train(
 ) -> Tuple[int, float, float]:
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="whisper-werewolf", name=output_dir.replace("/", "-"), config=vars(args))
+        parts = output_dir.split("/")
+        dataset, seed, strategy = parts[-3], parts[-2], parts[-1]
+        wandb.init(project="werewolf", tags=["whisper", dataset, f"seed{seed}", strategy], config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)
