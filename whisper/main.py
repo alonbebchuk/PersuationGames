@@ -9,6 +9,7 @@ import optax
 import os
 import pandas as pd
 import random
+import shutil
 import wandb
 from collections import defaultdict
 from flax import struct, traverse_util
@@ -532,6 +533,7 @@ def process_strategy(
             best_model_path,
             local_files_only=True,
         )
+        shutil.rmtree(best_model_path)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0), weight_decay=0.0)
 

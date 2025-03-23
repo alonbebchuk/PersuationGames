@@ -9,6 +9,7 @@ import optax
 import os
 import pandas as pd
 import random
+import shutil
 import wandb
 from collections import defaultdict
 from datasets import Dataset, DatasetDict
@@ -486,6 +487,7 @@ def process_strategy(
             num_labels=2,
             local_files_only=True,
         )
+        shutil.rmtree(best_model_path)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0), weight_decay=0.0)
 
@@ -497,7 +499,7 @@ def process_strategy(
         results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
         write_json_file(results["test"], os.path.join(output_dir, "results_test.json"))
 
-    return strategy, results
+        return strategy, results
 
 
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
