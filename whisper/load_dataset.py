@@ -69,6 +69,7 @@ def load_data(
                     audio_arrays.append(audio_array)
 
                 np.save(f"{audio_dir}/{game['EG_ID']}_{game['Game_ID']}.npy", np.concatenate(audio_arrays))
+                game["audio_path"] = f"{audio_dir}/{game['EG_ID']}_{game['Game_ID']}.npy"
 
                 split = 0
                 sample_offset = 0
@@ -82,6 +83,7 @@ def load_data(
                 audio_array = get_audio_array(args.dataset, f"{game['video_name']}_{game['Game_ID']}.mp4")
 
                 np.save(f"{audio_dir}/{game['video_name']}_{game['Game_ID']}.npy", audio_array)
+                game["audio_path"] = f"{audio_dir}/{game['video_name']}_{game['Game_ID']}.npy"
 
                 for dialogue in game["Dialogue"]:
                     dialogue["sample"] = timestamp_to_sample(dialogue["timestamp"])

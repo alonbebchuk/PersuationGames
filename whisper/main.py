@@ -560,14 +560,10 @@ def load_strategy_datasets() -> Dict[str, DatasetDict]:
         with open(f"{args.data_dir}/{split}.json", "r") as f:
             games = json.load(f)
             for game in games:
-                for record in game["Dialogue"]:
-                    audio_path = record["audio_path"]
-                    if audio_path not in AUDIO_CACHE:
-                        audio_array = np.load(audio_path)
-                        AUDIO_CACHE[audio_path] = {
-                            "array": audio_array,
-                            "length": len(audio_array)
-                        }
+                audio_path = game["audio_path"]
+                if audio_path not in AUDIO_CACHE:
+                    audio_array = np.load(audio_path)
+                    AUDIO_CACHE[audio_path] = {"array": audio_array, "length": len(audio_array)}
 
     strategy_datasets = {}
 
