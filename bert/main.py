@@ -62,7 +62,7 @@ parser.add_argument("--logging_steps", default=40, type=int, help="Log every X u
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=256, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument("--num_workers", type=int, default=mp.cpu_count(), help="Number of worker processes for data loading")
+parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")

@@ -63,7 +63,7 @@ parser.add_argument("--logging_steps", default=40, type=int, help="Log every X u
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument("--num_workers", type=int, default=mp.cpu_count(), help="Number of worker processes for data loading")
+parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
@@ -93,6 +93,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
+AUDIO_CACHE = {}
 STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
@@ -176,10 +177,21 @@ def create_learning_rate_fn(
 def collate_fn(
     batch: List[Dict[str, np.ndarray]],
 ) -> Dict[str, np.ndarray]:
-    audio_arrays = [np.load(sample["audio_path"]) for sample in batch]
-    end_samples = [sample["end_sample"] if sample["end_sample"] != -1 else len(audio_arrays[i]) for i, sample in enumerate(batch)]
-    start_samples = [max(sample["start_sample"], end_samples[i] - MAX_SAMPLE_LENGTH) for i, sample in enumerate(batch)]
-    audio_arrays = [audio_array[start_sample:end_sample] for audio_array, start_sample, end_sample in zip(audio_arrays, start_samples, end_samples)]
+    global AUDIO_CACHE
+
+    end_samples = [
+        AUDIO_CACHE[sample["audio_path"]]["length"] if sample["end_sample"] == -1 else sample["end_sample"]
+        for sample in batch
+    ]
+    start_samples = [
+        max(end_samples[i] - MAX_SAMPLE_LENGTH, sample["start_sample"])
+        for i, sample in enumerate(batch)
+    ]
+    audio_arrays = [
+        AUDIO_CACHE[sample["audio_path"]]["array"][start:end]
+        for sample, start, end in zip(batch, start_samples, end_samples)
+    ]
+
     features = FEATURE_EXTRACTOR(audio_arrays, sampling_rate=SAMPLING_RATE, return_attention_mask=True, return_tensors="np")
     input_features = features["input_features"]
     attention_mask = features["attention_mask"]
@@ -538,9 +550,24 @@ def process_strategy(
 
 
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
+    global AUDIO_CACHE
+    
     load_data(args, "train")
     load_data(args, "val")
     load_data(args, "test")
+
+    for split in ["train", "val", "test"]:
+        with open(f"{args.data_dir}/{split}.json", "r") as f:
+            games = json.load(f)
+            for game in games:
+                for record in game["Dialogue"]:
+                    audio_path = record["audio_path"]
+                    if audio_path not in AUDIO_CACHE:
+                        audio_array = np.load(audio_path)
+                        AUDIO_CACHE[audio_path] = {
+                            "array": audio_array,
+                            "length": len(audio_array)
+                        }
 
     strategy_datasets = {}
 
