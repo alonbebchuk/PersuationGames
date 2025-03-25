@@ -30,12 +30,11 @@ from typing import (
 )
 
 
+TOKENIZER = BertTokenizer.from_pretrained("bert-base-uncased")
+
+
 def MODEL_CLASS() -> FlaxBertForSequenceClassification:
     return FlaxBertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2)
-
-
-def TOKENIZER_CLASS() -> BertTokenizer:
-    return BertTokenizer.from_pretrained("bert-base-uncased")
 
 
 logger = log.getLogger(__name__)
@@ -63,21 +62,26 @@ parser.add_argument("--logging_steps", default=40, type=int, help="Log every X u
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=256, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
+parser.add_argument("--num_workers", type=int, default=mp.cpu_count(), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.output_dir = os.path.join("bert", "out", args.dataset, str(args.seed))
-args.dataset_dir = os.path.join("bert", "data", args.dataset)
+args.data_dir = f"/dev/shm/bert/data/{args.dataset}"
+args.temp_dir = f"/dev/shm/bert/tmp"
 
-os.makedirs(args.output_dir, exist_ok=True)
+os.makedirs(args.data_dir, exist_ok=True)
+os.makedirs(args.temp_dir, exist_ok=True)
+
+args.out_dir = os.path.join(os.path.dirname(__file__), "out", args.dataset, str(args.seed))
+
+os.makedirs(args.out_dir, exist_ok=True)
 
 logger.setLevel(log.INFO)
 formatter = log.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S")
 
-fh = log.FileHandler(os.path.join(args.output_dir, "log.txt"))
+fh = log.FileHandler(os.path.join(args.out_dir, "log.txt"))
 fh.setLevel(log.INFO)
 fh.setFormatter(formatter)
 
@@ -158,9 +162,9 @@ def collate_fn(
     batch: List[Dict[str, np.ndarray]],
 ) -> Dict[str, np.ndarray]:
     return {
-        "input_ids": np.array([x["input_ids"] for x in batch]),
-        "attention_mask": np.array([x["attention_mask"] for x in batch]),
-        "labels": np.array([x["labels"] for x in batch]),
+        "input_ids": np.array([sample["input_ids"] for sample in batch]),
+        "attention_mask": np.array([sample["attention_mask"] for sample in batch]),
+        "labels": np.array([sample["labels"] for sample in batch]),
     }
 
 
@@ -193,15 +197,13 @@ def get_adjusted_batch_size(
 
 def train(
     model: FlaxBertForSequenceClassification,
+    strategy: str,
     train_dataset: Dataset,
     val_dataset: Dataset,
-    output_dir: str,
-) -> Tuple[int, float, float]:
+) -> Tuple[int, float, float, str]:
     worker_id = jax.process_index()
     if worker_id == 0:
-        parts = output_dir.split("/")
-        dataset, seed, strategy = parts[-3], parts[-2], parts[-1]
-        wandb.init(project="werewolf", tags=["bert", dataset, f"seed{seed}", strategy], config=vars(args))
+        wandb.init(project="werewolf", name=f"bert-{args.dataset}-seed{args.seed}-{strategy}", tags=["bert", args.dataset, f"seed{args.seed}", strategy], config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -304,9 +306,9 @@ def train(
             if results["f1"] >= best_f1:
                 best_f1 = results["f1"]
                 wait_step = 0
-                output_best_dir = os.path.join(output_dir, "best")
-                os.makedirs(output_best_dir, exist_ok=True)
-                logger.info("Saving best model to %s", output_best_dir)
+                best_dir = os.path.join(args.temp_dir, "best")
+                os.makedirs(best_dir, exist_ok=True)
+                logger.info("Saving best model to %s", best_dir)
 
                 devices = jax.local_devices()
                 n_devices = len(devices)
@@ -317,9 +319,9 @@ def train(
 
                 save_model = MODEL_CLASS()
                 save_model.params = unreplicated_params
-                save_model.save_pretrained(output_best_dir)
+                save_model.save_pretrained(best_dir)
 
-                with open(os.path.join(output_best_dir, "training_args.json"), "w") as f:
+                with open(os.path.join(best_dir, "training_args.json"), "w") as f:
                     json.dump(vars(args), f, indent=2)
             else:
                 wait_step += 1
@@ -330,7 +332,7 @@ def train(
     if worker_id == 0:
         wandb.finish()
 
-    return global_step, tr_loss / global_step, best_f1
+    return global_step, tr_loss / global_step, best_f1, best_dir
 
 
 def evaluate(
@@ -429,7 +431,7 @@ def log_predictions(
     preds: Dict[str, Dict[str, List[int]]],
 ) -> None:
     for split in splits:
-        with open(os.path.join(args.dataset_dir, f"{split}.json"), "r") as f:
+        with open(f"{args.data_dir}/{split}.json", "r") as f:
             games = json.load(f)
             id = -1
             data = defaultdict(list)
@@ -446,7 +448,7 @@ def log_predictions(
                         data[key].append(val)
                     data["prediction"].append(pred)
             df = pd.DataFrame.from_dict(data)
-            df.to_csv(os.path.join(args.output_dir, f"predictions_{split}.csv"))
+            df.to_csv(f"{args.out_dir}/predictions_{split}.csv")
 
 
 def write_json_file(
@@ -471,51 +473,49 @@ def process_strategy(
 ) -> Tuple[str, Dict[str, Dict[str, Any]]]:
     logger.info(f"Training for strategy {strategy}")
 
-    output_dir = os.path.join(args.output_dir, strategy)
-    os.makedirs(output_dir, exist_ok=True)
-
     set_seeds()
 
     model = MODEL_CLASS()
     results = {}
 
     if not args.no_train and train_dataset is not None:
-        global_step, tr_loss, best_f1 = train(model, train_dataset, val_dataset, output_dir)
+        global_step, tr_loss, best_f1, best_dir = train(model, strategy, train_dataset, val_dataset)
         logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
         logger.info("Reloading best model")
-        best_model_path = os.path.join(output_dir, "best")
         model = FlaxBertForSequenceClassification.from_pretrained(
-            best_model_path,
+            best_dir,
             num_labels=2,
             local_files_only=True,
         )
-        shutil.rmtree(best_model_path)
+        shutil.rmtree(best_dir)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0), weight_decay=0.0)
 
+    strategy_out_dir = f"{args.out_dir}/{strategy}"
+    os.makedirs(strategy_out_dir, exist_ok=True)
+
     if not args.no_eval and val_dataset is not None:
         results["val"] = evaluate(state, val_dataset, mode="val", prefix="final")
-        write_json_file(results["val"], os.path.join(output_dir, "results_val.json"))
+        write_json_file(results["val"], f"{strategy_out_dir}/results_val.json")
 
     if not args.no_test and test_dataset is not None:
         results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
-        write_json_file(results["test"], os.path.join(output_dir, "results_test.json"))
+        write_json_file(results["test"], f"{strategy_out_dir}/results_test.json")
 
-        return strategy, results
+    return strategy, results
 
 
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
-    base_tokenizer = TOKENIZER_CLASS()
     strategy_datasets = {}
 
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
         if not args.no_train:
-            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, base_tokenizer, mode="train")
+            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, TOKENIZER, args.data_dir, "train")
         if not args.no_eval:
-            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, base_tokenizer, mode="val")
+            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, TOKENIZER, args.data_dir, "val")
         if not args.no_test:
-            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, base_tokenizer, mode="test")
+            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, TOKENIZER, args.data_dir, "test")
 
     return strategy_datasets
 
@@ -535,9 +535,9 @@ def format_results(
     result["overall_accuracy"] = cnt / len(all_correct[split])
     result["averaged_f1"] = averaged_f1[split] / len(STRATEGIES)
 
-    write_json_file(result, os.path.join(args.output_dir, f"results_{split}.json"))
+    write_json_file(result, f"{args.out_dir}/results_{split}.json")
 
-    with open(os.path.join(args.output_dir, f"results_{split}_beaut.txt"), "w") as f:
+    with open(f"{args.out_dir}/results_{split}.txt", "w") as f:
         for strategy in STRATEGIES:
             f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
         f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
