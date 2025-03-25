@@ -32,50 +32,6 @@ from typing import (
 FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
 TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-small")
 
-class AudioCollator:
-    def __init__(self):
-        self.cache = {}
-    
-    def load_cache(self, data_dir: str):
-        for split in ["train", "val", "test"]:
-            with open(f"{data_dir}/{split}.json", "r") as f:
-                games = json.load(f)
-                for game in games:
-                    audio_path = game["audio_path"]
-                    if audio_path not in self.cache:
-                        audio_array = np.load(audio_path)
-                        self.cache[audio_path] = {"array": audio_array, "length": len(audio_array)}
-    
-    def __call__(
-        self,
-        batch: List[Dict[str, np.ndarray]],
-    ) -> Dict[str, np.ndarray]:
-        end_samples = [
-            self.cache[sample["audio_path"]]["length"] if sample["end_sample"] == -1 else sample["end_sample"]
-            for sample in batch
-        ]
-        start_samples = [
-            max(end_samples[i] - MAX_SAMPLE_LENGTH, sample["start_sample"])
-            for i, sample in enumerate(batch)
-        ]
-        audio_arrays = [
-            self.cache[sample["audio_path"]]["array"][start:end]
-            for sample, start, end in zip(batch, start_samples, end_samples)
-        ]
-
-        features = FEATURE_EXTRACTOR(audio_arrays, sampling_rate=SAMPLING_RATE, return_attention_mask=True, return_tensors="np")
-        input_features = features["input_features"]
-        attention_mask = features["attention_mask"]
-        return {
-            "decoder_input_ids": np.array([sample["decoder_input_ids"] for sample in batch]),
-            "decoder_attention_mask": np.array([sample["decoder_attention_mask"] for sample in batch]),
-            "input_features": input_features,
-            "attention_mask": attention_mask,
-            "labels": np.array([sample["labels"] for sample in batch]),
-        }
-
-COLLATOR = AudioCollator()
-
 
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
     return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
@@ -99,14 +55,14 @@ parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon fo
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
 parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
-parser.add_argument("--eval_batch_size", default=16, type=int, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", default=32, type=int, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
+parser.add_argument("--num_workers", type=int, default=min(4, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
@@ -141,6 +97,69 @@ STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for A
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
 YES_TOKEN_ID = 6054
 NO_TOKEN_ID = 4540
+
+
+class AudioCollator:
+    def __init__(
+        self,
+        batch_size: int,
+    ) -> None:
+        self.cache = {}
+        self.batch_size = batch_size
+
+    def load_cache(self, data_dir: str, split: str) -> None:
+        with open(f"{data_dir}/{split}.json", "r") as f:
+            games = json.load(f)
+            for game in games:
+                for record in game["Dialogue"]:
+                    audio_path = record["audio_path"]
+                    if audio_path not in self.cache:
+                        audio_array = np.load(audio_path, mmap_mode='r')
+                        self.cache[audio_path] = {"array": audio_array, "length": len(audio_array)}
+
+    def __call__(
+        self,
+        batch: List[Dict[str, np.ndarray]],
+    ) -> Dict[str, np.ndarray]:
+        if not batch:
+            raise ValueError("Empty batch received")
+
+        batch_size = len(batch)
+        audio_arrays = []
+
+        decoder_input_ids = np.empty((batch_size, batch[0]["decoder_input_ids"].shape[0]), dtype=np.int32)
+        decoder_attention_mask = np.empty((batch_size, batch[0]["decoder_attention_mask"].shape[0]), dtype=np.int32)
+        labels = np.empty(batch_size, dtype=np.int32)
+
+        for i, sample in enumerate(batch):
+            audio_path = sample["audio_path"]
+            cached_data = self.cache[audio_path]
+
+            end_sample = cached_data["length"] if sample["end_sample"] == -1 else sample["end_sample"]
+            start_sample = max(end_sample - MAX_SAMPLE_LENGTH, sample["start_sample"])
+
+            audio_array = cached_data["array"][start_sample:end_sample]
+            audio_arrays.append(audio_array)
+
+            decoder_input_ids[i] = sample["decoder_input_ids"]
+            decoder_attention_mask[i] = sample["decoder_attention_mask"]
+            labels[i] = sample["labels"]
+
+        features = FEATURE_EXTRACTOR(
+            audio_arrays,
+            sampling_rate=SAMPLING_RATE,
+            return_attention_mask=True,
+            return_tensors="np",
+            padding=True
+        )
+
+        return {
+            "decoder_input_ids": decoder_input_ids,
+            "decoder_attention_mask": decoder_attention_mask,
+            "input_features": features["input_features"],
+            "attention_mask": features["attention_mask"],
+            "labels": labels,
+        }
 
 
 class TrainState(train_state.TrainState):
@@ -258,6 +277,8 @@ def train(
     logger.info(f"Training using {n_devices} devices")
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices, "batch")
+    audio_collator = AudioCollator(batch_size=global_batch_size)
+    audio_collator.load_cache(args.data_dir, "train")
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -267,7 +288,7 @@ def train(
         pin_memory=not args.no_pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
-        collate_fn=COLLATOR,
+        collate_fn=audio_collator,
         drop_last=True,
     )
 
@@ -399,6 +420,8 @@ def evaluate(
     n_devices = len(devices)
 
     global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices, "eval batch")
+    audio_collator = AudioCollator(batch_size=global_eval_batch_size)
+    audio_collator.load_cache(args.data_dir, "val")
 
     eval_dataloader = DataLoader(
         eval_dataset,
@@ -408,7 +431,7 @@ def evaluate(
         pin_memory=not args.no_pin_memory,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
-        collate_fn=COLLATOR,
+        collate_fn=audio_collator,
         drop_last=True,
     )
 
@@ -565,8 +588,6 @@ def load_strategy_datasets() -> Dict[str, DatasetDict]:
     load_data(args, "train")
     load_data(args, "val")
     load_data(args, "test")
-
-    COLLATOR.load_cache(args.data_dir)
 
     strategy_datasets = {}
     for strategy in STRATEGIES:
