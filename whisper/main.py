@@ -62,7 +62,7 @@ parser.add_argument("--logging_steps", default=40, type=int, help="Log every X u
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
-parser.add_argument("--num_workers", type=int, default=min(4, mp.cpu_count()), help="Number of worker processes for data loading")
+parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
 parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
@@ -107,28 +107,28 @@ class AudioCollator:
         self.cache = {}
         self.batch_size = batch_size
 
-    def load_cache(self, data_dir: str, split: str) -> None:
+    def load_cache(
+        self,
+        data_dir: str,
+        split: str
+    ) -> None:
         with open(f"{data_dir}/{split}.json", "r") as f:
             games = json.load(f)
             for game in games:
-                for record in game["Dialogue"]:
-                    audio_path = record["audio_path"]
-                    if audio_path not in self.cache:
-                        audio_array = np.load(audio_path, mmap_mode='r')
-                        self.cache[audio_path] = {"array": audio_array, "length": len(audio_array)}
+                audio_path = game["audio_path"]
+                if audio_path not in self.cache:
+                    audio_array = np.load(audio_path, mmap_mode='r')
+                    self.cache[audio_path] = {"array": audio_array, "length": len(audio_array)}
 
     def __call__(
         self,
         batch: List[Dict[str, np.ndarray]],
     ) -> Dict[str, np.ndarray]:
-        if not batch:
-            raise ValueError("Empty batch received")
-
         batch_size = len(batch)
         audio_arrays = []
 
-        decoder_input_ids = np.empty((batch_size, batch[0]["decoder_input_ids"].shape[0]), dtype=np.int32)
-        decoder_attention_mask = np.empty((batch_size, batch[0]["decoder_attention_mask"].shape[0]), dtype=np.int32)
+        decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
+        decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
         labels = np.empty(batch_size, dtype=np.int32)
 
         for i, sample in enumerate(batch):
@@ -150,7 +150,7 @@ class AudioCollator:
             sampling_rate=SAMPLING_RATE,
             return_attention_mask=True,
             return_tensors="np",
-            padding=True
+            padding="max_length",
         )
 
         return {
