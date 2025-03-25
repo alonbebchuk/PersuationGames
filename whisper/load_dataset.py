@@ -113,8 +113,6 @@ def load_dataset(
         dialogues = game["Dialogue"]
         previous_utterence_tokens_list = []
 
-        audio_path = f"{audio_dir}/{game[DATASET_TO_VIDEO_NAME_KEY[args.dataset]]}_{game['Game_ID']}.npy"
-
         for i, record in enumerate(dialogues):
             label = 1 if strategy in record["annotation"] else 0
             utterance = record["utterance"] + "\n"
@@ -140,7 +138,7 @@ def load_dataset(
 
             all_input_ids.append(input_ids)
             all_input_mask.append(input_mask)
-            all_audio_path.append(audio_path)
+            all_audio_path.append(game["audio_path"])
             all_start_sample.append(start_sample)
             all_end_sample.append(end_sample)
             all_label.append(label)
