@@ -16,7 +16,7 @@ from datasets import Dataset, DatasetDict
 from flax import struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
-from load_dataset import load_dataset, SAMPLING_RATE
+from load_dataset import load_data, load_dataset, SAMPLING_RATE
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
@@ -538,16 +538,20 @@ def process_strategy(
 
 
 def load_strategy_datasets() -> Dict[str, DatasetDict]:
+    load_data(args, "train")
+    load_data(args, "val")
+    load_data(args, "test")
+
     strategy_datasets = {}
 
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
         if not args.no_train:
-            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, TOKENIZER, args.data_dir, "train")
+            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, TOKENIZER, "train")
         if not args.no_eval:
-            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, TOKENIZER, args.data_dir, "val")
+            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, TOKENIZER, "val")
         if not args.no_test:
-            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, TOKENIZER, args.data_dir, "test")
+            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, TOKENIZER, "test")
 
     return strategy_datasets
 

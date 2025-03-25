@@ -9,22 +9,13 @@ from typing import Any
 HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us/resolve/main"
 
 
-def load_dataset(
+def load_data(
     args: Any,
-    strategy: str,
-    tokenizer: BertTokenizer,
-    data_dir: str,
     mode: str,
-) -> Dataset:
-    all_input_ids, all_input_mask, all_label = [], [], []
-
-    json_path = f"{data_dir}/{mode}.json"
-    if os.path.exists(json_path):
-        with open(json_path, "r") as f:
-            games = json.load(f)
-    else:
+) -> None:
+    json_path = f"{args.data_dir}/{mode}.json"
+    if not os.path.exists(json_path):
         json_url = f"{HUGGINGFACE_DATASET_URL}/{args.dataset}/split/{mode}.json"
-        os.makedirs(os.path.dirname(json_path), exist_ok=True)
 
         response = requests.get(json_url)
         response.raise_for_status()
@@ -32,6 +23,19 @@ def load_dataset(
 
         with open(json_path, "w") as f:
             json.dump(games, f)
+
+
+def load_dataset(
+    args: Any,
+    strategy: str,
+    tokenizer: BertTokenizer,
+    mode: str,
+) -> Dataset:
+    all_input_ids, all_input_mask, all_label = [], [], []
+
+    json_path = f"{args.data_dir}/{mode}.json"
+    with open(json_path, "r") as f:
+        games = json.load(f)
 
     for game in games:
         dialogues = game["Dialogue"]

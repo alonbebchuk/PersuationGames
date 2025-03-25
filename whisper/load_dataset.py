@@ -19,33 +19,30 @@ HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Amo
 SAMPLING_RATE = 16000
 
 
-def timestamp_to_sample(timestamp: str) -> int:
+def timestamp_to_sample(
+    timestamp: str
+) -> int:
     m, s = map(int, timestamp.split(":"))
     return (m * 60 + s) * SAMPLING_RATE
 
-def get_audio_array(dataset: str, filename: str) -> np.ndarray:
+def get_audio_array(
+    dataset: str,
+    filename: str,
+) -> np.ndarray:
     mp4_path = hf_hub_download(repo_id=DATASET_REPO_ID, filename=f"{dataset}/videos/{filename}", repo_type="dataset", local_dir="/dev/shm")
     audio = AudioSegment.from_file(mp4_path, format="mp4").set_frame_rate(SAMPLING_RATE).set_channels(1)
     audio_array = np.array(audio.get_array_of_samples(), dtype=np.float32) / 32768.0
     os.remove(mp4_path)
     return audio_array
 
-def load_dataset(
-    args: Any,
-    strategy: str,
-    tokenizer: WhisperTokenizer,
-    data_dir: str,
-    mode: str,
-) -> Dataset:
-    all_input_ids, all_input_mask, all_audio_path, all_start_sample, all_end_sample, all_label = [], [], [], [], [], []
 
-    json_path = f"{data_dir}/{mode}.json"
-    if os.path.exists(json_path):
-        with open(json_path, "r") as f:
-            games = json.load(f)
-    else:
+def load_data(
+    args: Any,
+    mode: str,
+) -> None:
+    json_path = f"{args.data_dir}/{mode}.json"
+    if not os.path.exists(json_path):
         json_url = f"{HUGGINGFACE_DATASET_URL}/{args.dataset}/split/{mode}.json"
-        os.makedirs(os.path.dirname(json_path), exist_ok=True)
 
         response = requests.get(json_url)
         response.raise_for_status()
@@ -54,9 +51,8 @@ def load_dataset(
         with open(json_path, "w") as f:
             json.dump(games, f)
 
-    audio_dir = f"{data_dir}/audios/{mode}"
+    audio_dir = f"{args.data_dir}/audios/{mode}"
     if not os.path.exists(audio_dir):
-        print(f"Audio directory {audio_dir} does not exist. Creating it...")
         os.makedirs(audio_dir)
 
         for game in games:
@@ -92,6 +88,22 @@ def load_dataset(
 
         with open(json_path, "w") as f:
             json.dump(games, f)
+
+
+
+def load_dataset(
+    args: Any,
+    strategy: str,
+    tokenizer: WhisperTokenizer,
+    mode: str,
+) -> Dataset:
+    all_input_ids, all_input_mask, all_audio_path, all_start_sample, all_end_sample, all_label = [], [], [], [], [], []
+
+    json_path = f"{args.data_dir}/{mode}.json"
+    with open(json_path, "r") as f:
+        games = json.load(f)
+
+    audio_dir = f"{args.data_dir}/audios/{mode}"
 
     prompt_builder = PromptBuilder(args, strategy, tokenizer)
 
