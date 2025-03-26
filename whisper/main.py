@@ -50,21 +50,21 @@ parser.add_argument("--no_test", action="store_true", help="Whether to run predi
 parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
 # optional
 parser.add_argument("--adam_b1", default=0.9, type=float, help="Adam b1")
-parser.add_argument("--adam_b2", default=0.999, type=float, help="Adam b2")
+parser.add_argument("--adam_b2", default=0.99, type=float, help="Adam b2")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
 parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
-parser.add_argument("--eval_batch_size", default=32, type=int, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", default=16, type=int, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
-parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
+parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
 parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
-parser.add_argument("--warmup_steps", default=0, type=int, help="Linear warmup over warmup_steps.")
+parser.add_argument("--warmup_steps", default=200, type=int, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
@@ -421,7 +421,7 @@ def evaluate(
 
     global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices, "eval batch")
     audio_collator = AudioCollator(batch_size=global_eval_batch_size)
-    audio_collator.load_cache(args.data_dir, "val")
+    audio_collator.load_cache(args.data_dir, mode)
 
     eval_dataloader = DataLoader(
         eval_dataset,
