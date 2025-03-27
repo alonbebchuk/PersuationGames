@@ -13,4 +13,4 @@ do
     done
   done
 done
-cp -r /dev/shm/out/ ./
+cp -r /dev/shm/out ./
