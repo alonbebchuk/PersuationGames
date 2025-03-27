@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
 args = parser.parse_args()
 
-args.data_dir = f"/dev/shm/bert/data/{args.dataset}"
+args.data_dir = f"/dev/shm/data/bert/{args.dataset}"
 
 os.makedirs(args.data_dir, exist_ok=True)
 

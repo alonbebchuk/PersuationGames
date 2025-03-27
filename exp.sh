@@ -1,6 +1,7 @@
+rm -rf /dev/shm/out
+rm -rf ./out
 for model_type in bert whisper
 do
-  rm -rf /dev/shm/${model_type}/out
   for dataset in Ego4D Youtube
   do
     for strategy in "Identity Declaration" "Accusation" "Interrogation" "Call for Action" "Defense" "Evidence"
@@ -12,3 +13,4 @@ do
     done
   done
 done
+cp -r /dev/shm/out/ ./

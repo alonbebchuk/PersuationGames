@@ -60,10 +60,10 @@ parser.add_argument("--warmup_steps", type=int, default=0, help="Linear warmup o
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.data_dir = f"/dev/shm/bert/data/{args.dataset}"
+args.data_dir = f"/dev/shm/data/bert/{args.dataset}"
 
-args.best_dir = f"/dev/shm/bert/best/{args.dataset}/{args.strategy}/{args.seed}"
-args.out_dir = f"/dev/shm/bert/out/{args.dataset}/{args.strategy}/{args.seed}"
+args.best_dir = f"/dev/shm/best/bert/{args.dataset}/{args.strategy}/{args.seed}"
+args.out_dir = f"/dev/shm/out/bert/{args.dataset}/{args.strategy}/{args.seed}"
 
 os.makedirs(args.best_dir, exist_ok=True)
 os.makedirs(args.out_dir, exist_ok=True)
