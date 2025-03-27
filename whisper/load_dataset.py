@@ -8,7 +8,6 @@ from typing import Any
 
 def load_dataset(
     args: Any,
-    strategy: str,
     tokenizer: WhisperTokenizer,
     mode: str,
 ) -> Dataset:
@@ -18,14 +17,14 @@ def load_dataset(
     with open(json_path, "r") as f:
         games = json.load(f)
 
-    prompt_builder = PromptBuilder(args, strategy, tokenizer)
+    prompt_builder = PromptBuilder(args, tokenizer)
 
     for game in games:
         dialogues = game["Dialogue"]
         previous_utterence_tokens_list = []
 
         for i, record in enumerate(dialogues):
-            label = 1 if strategy in record["annotation"] else 0
+            label = 1 if args.strategy in record["annotation"] else 0
             utterance = record["utterance"] + "\n"
 
             utterance_tokens = tokenizer.tokenize(utterance)

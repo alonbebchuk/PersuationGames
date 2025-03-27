@@ -352,7 +352,7 @@ def evaluate(
     eval_model = MODEL_CLASS()
     eval_model.params = params
 
-    eval_state = create_train_state(eval_model, dummy_lr_fn, weight_decay=0.0)
+    eval_state = create_train_state(eval_model, dummy_lr_fn)
 
     total_samples = len(eval_dataset)
     all_preds = np.zeros(total_samples, dtype=np.int32)

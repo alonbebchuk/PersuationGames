@@ -7,7 +7,6 @@ from typing import Any
 
 def load_dataset(
     args: Any,
-    strategy: str,
     tokenizer: BertTokenizer,
     mode: str,
 ) -> Dataset:
@@ -22,7 +21,7 @@ def load_dataset(
         context = [[]] * args.context_size
 
         for record in dialogues:
-            label = 1 if strategy in record["annotation"] else 0
+            label = 1 if args.strategy in record["annotation"] else 0
             utterance = record["utterance"]
 
             tokens = []

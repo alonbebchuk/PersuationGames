@@ -14,7 +14,6 @@ from datasets import Dataset, DatasetDict
 from flax import struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
-from load_data import SAMPLING_RATE
 from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
@@ -85,7 +84,9 @@ logger.addHandler(ch)
 logger.addHandler(fh)
 
 
+SAMPLING_RATE = 16000
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
+
 YES_TOKEN_ID = 6054
 NO_TOKEN_ID = 4540
 
@@ -432,7 +433,7 @@ def evaluate(
     eval_model = MODEL_CLASS()
     eval_model.params = params
 
-    eval_state = create_train_state(eval_model, dummy_lr_fn, weight_decay=0.0)
+    eval_state = create_train_state(eval_model, dummy_lr_fn)
 
     total_samples = len(eval_dataset)
     all_preds = np.zeros(total_samples, dtype=np.int32)

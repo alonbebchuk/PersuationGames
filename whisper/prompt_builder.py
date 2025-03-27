@@ -29,12 +29,11 @@ STRATEGY_TO_STRATEGY_DEFINITION = {
 
 
 class PromptBuilder:
-    def __init__(self, args: Any, strategy: str, tokenizer: WhisperTokenizer):
+    def __init__(self, args: Any, tokenizer: WhisperTokenizer):
         self.args = args
-        self.strategy = strategy
         self.tokenizer = tokenizer
 
-        prompt_prefix = PROMPT_PREFIX.format(strategy=strategy, strategy_definition=STRATEGY_TO_STRATEGY_DEFINITION[strategy])
+        prompt_prefix = PROMPT_PREFIX.format(strategy=self.args.strategy, strategy_definition=STRATEGY_TO_STRATEGY_DEFINITION[self.args.strategy])
         self.prompt_prefix_tokens = ["<|startoftranscript|>", "<|notimestamps|>"] + tokenizer.tokenize(prompt_prefix)
         self.prompt_prefix_length = len(self.prompt_prefix_tokens)
 
@@ -47,7 +46,7 @@ class PromptBuilder:
         self.prompt_last_utterance_prefix_tokens = tokenizer.tokenize(PROMPT_LAST_UTTERANCE_PREFIX)
         self.prompt_last_utterance_prefix_length = len(self.prompt_last_utterance_prefix_tokens)
 
-        self.prompt_suffix_tokens = tokenizer.tokenize(PROMPT_SUFFIX.format(strategy=strategy))
+        self.prompt_suffix_tokens = tokenizer.tokenize(PROMPT_SUFFIX.format(strategy=self.args.strategy))
         self.prompt_suffix_length = len(self.prompt_suffix_tokens)
 
     def build_prompt_tokens(self, previous_utterance_tokens_list: list[list[str]], utterance_tokens: list[str]) -> list[str]:
