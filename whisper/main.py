@@ -42,24 +42,18 @@ logger = log.getLogger(__name__)
 parser = argparse.ArgumentParser()
 # required
 parser.add_argument("--dataset", type=str, help="Name of dataset, Ego4D or Youtube")
+parser.add_argument("--strategy", type=str, help="Name of strategy, Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
 parser.add_argument("--seed", type=int, help="Random seed for initialization")
-parser.add_argument("--no_evaluate_during_training", action="store_true", help="Whether to run evaluation during training.")
-parser.add_argument("--no_eval", action="store_true", help="Whether to run eval on the val set.")
-parser.add_argument("--no_pin_memory", action="store_true", help="Pin memory for faster data transfer")
-parser.add_argument("--no_test", action="store_true", help="Whether to run predictions on the test set.")
-parser.add_argument("--no_train", action="store_true", help="Whether to run training.")
 # optional
 parser.add_argument("--adam_b1", default=0.9, type=float, help="Adam b1")
 parser.add_argument("--adam_b2", default=0.99, type=float, help="Adam b2")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
-parser.add_argument("--early_stopping_patience", default=10000, type=int, help="Patience for early stopping.")
 parser.add_argument("--eval_batch_size", default=16, type=int, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
-parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
 parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
@@ -170,7 +164,6 @@ class TrainState(train_state.TrainState):
 def create_train_state(
     model: FlaxWhisperForConditionalGeneration,
     learning_rate_fn: Callable[[int], float],
-    weight_decay: float,
 ) -> TrainState:
     def decay_mask_fn(
         params: Dict[str, Any],
@@ -191,7 +184,7 @@ def create_train_state(
         b1=args.adam_b1,
         b2=args.adam_b2,
         eps=args.adam_epsilon,
-        weight_decay=weight_decay,
+        weight_decay=args.weight_decay,
         mask=decay_mask_fn,
     )
 
@@ -285,7 +278,7 @@ def train(
         batch_size=global_batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=not args.no_pin_memory,
+        pin_memory=True,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
         collate_fn=audio_collator,
@@ -300,7 +293,7 @@ def train(
     )
 
     rng = jax.random.PRNGKey(args.seed)
-    state = create_train_state(model, learning_rate_fn, weight_decay=args.weight_decay)
+    state = create_train_state(model, learning_rate_fn)
     state = replicate_train_state(state, devices)
 
     @jax.pmap
@@ -368,7 +361,7 @@ def train(
                 logger.info("logging train info!!!")
                 logger.info("*")
 
-        if not args.no_evaluate_during_training and epoch % args.evaluate_period == 0:
+        if epoch % args.evaluate_period == 0:
             results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
             if worker_id == 0:
                 wandb.log({f"eval_{key}": value for key, value in results.items()})
@@ -398,11 +391,6 @@ def train(
 
                 with open(os.path.join(best_dir, "training_args.json"), "w") as f:
                     json.dump(vars(args), f, indent=2)
-            else:
-                wait_step += 1
-                if wait_step >= args.early_stopping_patience:
-                    train_iterator.close()
-                    break
 
     if worker_id == 0:
         wandb.finish()
@@ -428,7 +416,7 @@ def evaluate(
         batch_size=global_eval_batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        pin_memory=not args.no_pin_memory,
+        pin_memory=True,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
         collate_fn=audio_collator,
@@ -558,28 +546,25 @@ def process_strategy(
     model = MODEL_CLASS()
     results = {}
 
-    if not args.no_train and train_dataset is not None:
-        global_step, tr_loss, best_f1, best_dir = train(model, strategy, train_dataset, val_dataset)
-        logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
-        logger.info("Reloading best model")
-        model = FlaxWhisperForConditionalGeneration.from_pretrained(
-            best_dir,
-            local_files_only=True,
-        )
-        shutil.rmtree(best_dir)
+    global_step, tr_loss, best_f1, best_dir = train(model, strategy, train_dataset, val_dataset)
+    logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
+    logger.info("Reloading best model")
+    model = FlaxWhisperForConditionalGeneration.from_pretrained(
+        best_dir,
+        local_files_only=True,
+    )
+    shutil.rmtree(best_dir)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0), weight_decay=0.0)
 
     strategy_out_dir = f"{args.out_dir}/{strategy}"
     os.makedirs(strategy_out_dir, exist_ok=True)
 
-    if not args.no_eval and val_dataset is not None:
-        results["val"] = evaluate(state, val_dataset, mode="val", prefix="final")
-        write_json_file(results["val"], f"{strategy_out_dir}/results_val.json")
+    results["val"] = evaluate(state, val_dataset, mode="val", prefix="final")
+    write_json_file(results["val"], f"{strategy_out_dir}/results_val.json")
 
-    if not args.no_test and test_dataset is not None:
-        results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
-        write_json_file(results["test"], f"{strategy_out_dir}/results_test.json")
+    results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
+    write_json_file(results["test"], f"{strategy_out_dir}/results_test.json")
 
     return strategy, results
 
@@ -592,13 +577,9 @@ def load_strategy_datasets() -> Dict[str, DatasetDict]:
     strategy_datasets = {}
     for strategy in STRATEGIES:
         strategy_datasets[strategy] = DatasetDict()
-        if not args.no_train:
-            strategy_datasets[strategy]["train"] = load_dataset(args, strategy, TOKENIZER, "train")
-        if not args.no_eval:
-            strategy_datasets[strategy]["val"] = load_dataset(args, strategy, TOKENIZER, "val")
-        if not args.no_test:
-            strategy_datasets[strategy]["test"] = load_dataset(args, strategy, TOKENIZER, "test")
-
+        strategy_datasets[strategy]["train"] = load_dataset(args, strategy, TOKENIZER, "train")
+        strategy_datasets[strategy]["val"] = load_dataset(args, strategy, TOKENIZER, "val")
+        strategy_datasets[strategy]["test"] = load_dataset(args, strategy, TOKENIZER, "test")
     return strategy_datasets
 
 
@@ -649,10 +630,8 @@ def main() -> None:
     averaged_f1 = {"val": 0.0, "test": 0.0}
     splits = []
 
-    if not args.no_eval:
-        splits.append("val")
-    if not args.no_test:
-        splits.append("test")
+    splits.append("val")
+    splits.append("test")
 
     strategy_datasets = load_strategy_datasets()
 
