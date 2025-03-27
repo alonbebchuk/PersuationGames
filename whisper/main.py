@@ -7,16 +7,15 @@ import multiprocessing as mp
 import numpy as np
 import optax
 import os
-import pandas as pd
 import random
 import shutil
 import wandb
-from collections import defaultdict
 from datasets import Dataset, DatasetDict
 from flax import struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
-from load_dataset import load_data, load_dataset, SAMPLING_RATE
+from load_data import SAMPLING_RATE
+from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
@@ -28,6 +27,7 @@ from typing import (
     List,
     Tuple,
 )
+
 
 FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
 TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-small")
@@ -41,35 +41,33 @@ logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 # required
-parser.add_argument("--dataset", type=str, help="Name of dataset, Ego4D or Youtube")
-parser.add_argument("--strategy", type=str, help="Name of strategy, Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
-parser.add_argument("--seed", type=int, help="Random seed for initialization")
+parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
+parser.add_argument("--strategy", type=str, required=True, help="Name of strategy: Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
+parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
 # optional
-parser.add_argument("--adam_b1", default=0.9, type=float, help="Adam b1")
-parser.add_argument("--adam_b2", default=0.99, type=float, help="Adam b2")
-parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
+parser.add_argument("--adam_b1", type=float, default=0.9, help="Adam b1")
+parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
+parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
-parser.add_argument("--eval_batch_size", default=16, type=int, help="Batch size for evaluation.")
-parser.add_argument("--evaluate_period", default=2, type=int, help="Evaluate every * epochs.")
+parser.add_argument("--eval_batch_size", type=int, default=16, help="Batch size for evaluation.")
+parser.add_argument("--evaluate_period", type=int, default=2, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
-parser.add_argument("--logging_steps", default=40, type=int, help="Log every X updates steps.")
-parser.add_argument("--max_seq_length", default=448, type=int, help="The maximum sequence length for the model.")
-parser.add_argument("--num_train_epochs", default=10, type=int, help="Total number of training epochs to perform.")
+parser.add_argument("--logging_steps", type=int, default=40, help="Log every X updates steps.")
+parser.add_argument("--max_seq_length", type=int, default=448, help="The maximum sequence length for the model.")
+parser.add_argument("--num_train_epochs", type=int, default=10, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
-parser.add_argument("--warmup_steps", default=200, type=int, help="Linear warmup over warmup_steps.")
-parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay if we apply some.")
+parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup over warmup_steps.")
+parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
 args.data_dir = f"/dev/shm/whisper/data/{args.dataset}"
-args.temp_dir = f"/dev/shm/whisper/tmp"
 
-os.makedirs(args.data_dir, exist_ok=True)
-os.makedirs(args.temp_dir, exist_ok=True)
+args.best_dir = f"/dev/shm/whisper/best/{args.dataset}/{args.strategy}/{args.seed}"
+args.out_dir = f"/dev/shm/whisper/out/{args.dataset}/{args.strategy}/{args.seed}"
 
-args.out_dir = os.path.join(os.path.dirname(__file__), "out", args.dataset, str(args.seed))
-
+os.makedirs(args.best_dir, exist_ok=True)
 os.makedirs(args.out_dir, exist_ok=True)
 
 logger.setLevel(log.INFO)
@@ -86,7 +84,6 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
 YES_TOKEN_ID = 6054
@@ -257,13 +254,12 @@ def get_adjusted_batch_size(
 
 def train(
     model: FlaxWhisperForConditionalGeneration,
-    strategy: str,
     train_dataset: Dataset,
     val_dataset: Dataset,
-) -> Tuple[int, float, float, str]:
+) -> Tuple[int, float, float]:
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"whisper-{args.dataset}-seed{args.seed}-{strategy}", tags=["whisper", args.dataset, f"seed{args.seed}", strategy], config=vars(args))
+        wandb.init(project="werewolf", name=f"whisper-{args.dataset}-{args.strategy}-seed{args.seed}", tags=["whisper", args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
 
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -323,7 +319,6 @@ def train(
         return state, loss
 
     global_step = 0
-    wait_step = 0
     epochs_trained = 0
     steps_trained_in_current_epoch = 0
     best_f1 = 0
@@ -362,18 +357,15 @@ def train(
                 logger.info("*")
 
         if epoch % args.evaluate_period == 0:
-            results = evaluate(state, val_dataset, mode="val", prefix=str(global_step))
+            results = evaluate(state, val_dataset, "val")
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results.items()})
+                wandb.log({f"eval_{key}": value for key, value in results.items() if key not in ["report", "preds", "correct"]})
             logging_loss = tr_loss
-            logger.info(f"{results}")
+            logger.info(results["report"])
 
             if results["f1"] >= best_f1:
                 best_f1 = results["f1"]
-                wait_step = 0
-                best_dir = os.path.join(args.temp_dir, "best")
-                os.makedirs(best_dir, exist_ok=True)
-                logger.info("Saving best model to %s", best_dir)
+                logger.info("Saving best model to %s", args.best_dir)
 
                 devices = jax.local_devices()
                 n_devices = len(devices)
@@ -387,22 +379,21 @@ def train(
                 del save_model.config.__dict__["max_length"]
                 del save_model.config.__dict__["suppress_tokens"]
                 del save_model.config.__dict__["begin_suppress_tokens"]
-                save_model.save_pretrained(best_dir)
+                save_model.save_pretrained(args.best_dir)
 
-                with open(os.path.join(best_dir, "training_args.json"), "w") as f:
+                with open(os.path.join(args.best_dir, "training_args.json"), "w") as f:
                     json.dump(vars(args), f, indent=2)
 
     if worker_id == 0:
         wandb.finish()
 
-    return global_step, tr_loss / global_step, best_f1, best_dir
+    return global_step, tr_loss / global_step, best_f1
 
 
 def evaluate(
     state: TrainState,
     eval_dataset: Dataset,
     mode: str,
-    prefix: str,
 ) -> Dict[str, Any]:
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -423,7 +414,7 @@ def evaluate(
         drop_last=True,
     )
 
-    logger.info("***** Running evaluation %s *****", mode + "-" + prefix)
+    logger.info("***** Running evaluation %s *****", mode)
     logger.info("  Num examples = %d", len(eval_dataset))
     logger.info("  Batch size = %d", global_eval_batch_size)
 
@@ -475,48 +466,17 @@ def evaluate(
 
     correct = (all_preds == all_labels).astype(np.int32)
 
-    if prefix == "final":
-        results = {
-            "f1": f1_score(y_true=all_labels, y_pred=all_preds),
-            "precision": precision_score(y_true=all_labels, y_pred=all_preds),
-            "recall": recall_score(y_true=all_labels, y_pred=all_preds),
-            "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
-            "report": classification_report(y_true=all_labels, y_pred=all_preds),
-            "correct": correct.tolist(),
-            "preds": all_preds.tolist(),
-        }
-    else:
-        results = {
-            "f1": f1_score(y_true=all_labels, y_pred=all_preds),
-            "loss": eval_loss,
-        }
-    logger.info(results["f1"])
+    results = {
+        "loss": eval_loss,
+        "f1": f1_score(y_true=all_labels, y_pred=all_preds),
+        "precision": precision_score(y_true=all_labels, y_pred=all_preds),
+        "recall": recall_score(y_true=all_labels, y_pred=all_preds),
+        "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
+        "report": classification_report(y_true=all_labels, y_pred=all_preds),
+        "correct": correct.tolist(),
+        "preds": all_preds.tolist(),
+    }
     return results
-
-
-def log_predictions(
-    splits: List[str],
-    preds: Dict[str, Dict[str, List[int]]],
-) -> None:
-    for split in splits:
-        with open(f"{args.data_dir}/{split}.json", "r") as f:
-            games = json.load(f)
-            id = -1
-            data = defaultdict(list)
-            for game in games:
-                for record in game["Dialogue"]:
-                    id += 1
-                    pred = []
-                    for strategy in STRATEGIES:
-                        if preds[split][strategy][id] == 1:
-                            pred.append(strategy)
-                    if len(pred) == 0:
-                        pred.append("No Strategy")
-                    for key, val in record.items():
-                        data[key].append(val)
-                    data["prediction"].append(pred)
-            df = pd.DataFrame.from_dict(data)
-            df.to_csv(f"{args.out_dir}/predictions_{split}.csv")
 
 
 def write_json_file(
@@ -533,134 +493,39 @@ def set_seeds() -> None:
     jax.random.PRNGKey(args.seed)
 
 
-def process_strategy(
-    strategy: str,
-    train_dataset: Dataset,
-    val_dataset: Dataset,
-    test_dataset: Dataset,
-) -> Tuple[str, Dict[str, Dict[str, Any]]]:
-    logger.info(f"Training for strategy {strategy}")
-
-    set_seeds()
-
-    model = MODEL_CLASS()
-    results = {}
-
-    global_step, tr_loss, best_f1, best_dir = train(model, strategy, train_dataset, val_dataset)
-    logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
-    logger.info("Reloading best model")
-    model = FlaxWhisperForConditionalGeneration.from_pretrained(
-        best_dir,
-        local_files_only=True,
-    )
-    shutil.rmtree(best_dir)
-
-    state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0), weight_decay=0.0)
-
-    strategy_out_dir = f"{args.out_dir}/{strategy}"
-    os.makedirs(strategy_out_dir, exist_ok=True)
-
-    results["val"] = evaluate(state, val_dataset, mode="val", prefix="final")
-    write_json_file(results["val"], f"{strategy_out_dir}/results_val.json")
-
-    results["test"] = evaluate(state, test_dataset, mode="test", prefix="final")
-    write_json_file(results["test"], f"{strategy_out_dir}/results_test.json")
-
-    return strategy, results
-
-
-def load_strategy_datasets() -> Dict[str, DatasetDict]:
-    load_data(args, "train")
-    load_data(args, "val")
-    load_data(args, "test")
-
-    strategy_datasets = {}
-    for strategy in STRATEGIES:
-        strategy_datasets[strategy] = DatasetDict()
-        strategy_datasets[strategy]["train"] = load_dataset(args, strategy, TOKENIZER, "train")
-        strategy_datasets[strategy]["val"] = load_dataset(args, strategy, TOKENIZER, "val")
-        strategy_datasets[strategy]["test"] = load_dataset(args, strategy, TOKENIZER, "test")
-    return strategy_datasets
-
-
-def format_results(
-    split: str,
-    all_result: Dict[str, Dict[str, Dict[str, Any]]],
-    all_correct: Dict[str, List[int]],
-    averaged_f1: Dict[str, float],
-) -> None:
-    result = all_result[split]
-
-    cnt = 0
-    for x in all_correct[split]:
-        if x == len(STRATEGIES):
-            cnt += 1
-    result["overall_accuracy"] = cnt / len(all_correct[split])
-    result["averaged_f1"] = averaged_f1[split] / len(STRATEGIES)
-
-    write_json_file(result, f"{args.out_dir}/results_{split}.json")
-
-    with open(f"{args.out_dir}/results_{split}.txt", "w") as f:
-        for strategy in STRATEGIES:
-            f.write(f"{result[strategy]['f1'] * 100:.1f}\t")
-        f.write(f"{result['averaged_f1'] * 100:.1f}\t{result['overall_accuracy'] * 100:.1f}\n")
-
-        for strategy in STRATEGIES:
-            report = result[strategy]["report"]
-            result[strategy].pop("report")
-            f.write(f"{strategy}\n")
-            json.dump(result[strategy], f, indent=4)
-            f.write(report)
-            f.write("\n")
+def load_datasets() -> DatasetDict:
+    datasets = DatasetDict()
+    datasets["train"] = load_dataset(args, TOKENIZER, "train")
+    datasets["val"] = load_dataset(args, TOKENIZER, "val")
+    datasets["test"] = load_dataset(args, TOKENIZER, "test")
+    return datasets
 
 
 def main() -> None:
     mp.set_start_method("spawn", force=True)
 
     logger.info("------NEW RUN-----")
-    logger.info("random seed %s", args.seed)
+    logger.info("dataset %s, strategy %s, random seed %s", args.dataset, args.strategy, args.seed)
     logger.info("Training/evaluation parameters %s", args)
     logger.info(f"Using {args.num_workers} workers for data loading")
 
     set_seeds()
 
-    all_result = {"val": {}, "test": {}}
-    all_correct = {"val": None, "test": None}
-    preds = {"val": {}, "test": {}}
-    averaged_f1 = {"val": 0.0, "test": 0.0}
-    splits = []
+    datasets = load_datasets()
 
-    splits.append("val")
-    splits.append("test")
+    model = MODEL_CLASS()
+    global_step, tr_loss, best_f1 = train(model, datasets["train"], datasets["val"])
 
-    strategy_datasets = load_strategy_datasets()
+    logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
+    logger.info("Reloading best model")
 
-    for strategy in STRATEGIES:
-        datasets = strategy_datasets[strategy]
-        strategy_results = process_strategy(
-            strategy,
-            datasets.get("train"),
-            datasets.get("val"),
-            datasets.get("test"),
-        )
+    model = FlaxWhisperForConditionalGeneration.from_pretrained(args.best_dir, local_files_only=True)
+    shutil.rmtree(args.best_dir)
 
-        strategy, results = strategy_results
-        for split in splits:
-            if split in results:
-                all_result[split][strategy] = results[split]
+    state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0))
 
-                if all_correct[split] is None:
-                    all_correct[split] = results[split]["correct"]
-                else:
-                    all_correct[split] = [x + y for x, y in zip(all_correct[split], results[split]["correct"])]
-
-                preds[split][strategy] = results[split]["preds"]
-                averaged_f1[split] += results[split]["f1"]
-
-    log_predictions(splits, preds)
-
-    for split in splits:
-        format_results(split, all_result, all_correct, averaged_f1)
+    for split, dataset in [("val", datasets["val"]), ("test", datasets["test"])]:
+        write_json_file(evaluate(state, dataset, split), f"{args.out_dir}/results_{split}.json")
 
 
 if __name__ == "__main__":
