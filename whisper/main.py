@@ -122,6 +122,7 @@ class AudioCollator:
         decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
         decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
         labels = np.empty(batch_size, dtype=np.int32)
+        ids = []
 
         for i, sample in enumerate(batch):
             audio_path = sample["audio_path"]
@@ -136,6 +137,7 @@ class AudioCollator:
             decoder_input_ids[i] = sample["decoder_input_ids"]
             decoder_attention_mask[i] = sample["decoder_attention_mask"]
             labels[i] = sample["labels"]
+            ids.append(sample["id"])
 
         features = FEATURE_EXTRACTOR(
             audio_arrays,
@@ -151,6 +153,7 @@ class AudioCollator:
             "input_features": features["input_features"],
             "attention_mask": features["attention_mask"],
             "labels": labels,
+            "id": ids,
         }
 
 
@@ -367,6 +370,7 @@ def train(
                 steps_trained_in_current_epoch -= 1
                 continue
 
+            _ = batch.pop("id")
             batch = {
                 k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
                 for k, v in batch.items()
@@ -397,7 +401,7 @@ def train(
         if epoch % args.evaluate_period == 0:
             results = evaluate(state, val_dataset, "val")
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results.items() if key not in ["report", "preds", "correct"]})
+                wandb.log({f"eval_{key}": value for key, value in results.items() if key not in ["report", "preds", "ids"]})
             logging_loss = tr_loss
             logger.info(f"\n{results['report']}")
 
@@ -469,8 +473,11 @@ def evaluate(
     running_loss = 0.0
     all_preds = []
     all_labels = []
+    all_ids = []
 
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
+        ids = batch.pop("id")
+
         per_device_batch_size = global_eval_batch_size // n_devices
         batch = {
             k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
@@ -487,12 +494,16 @@ def evaluate(
         running_loss += jnp.mean(loss).item()
         all_preds.extend(jax.device_get(pred).reshape(-1))
         all_labels.extend(jax.device_get(labels).reshape(-1))
+        all_ids.extend(ids)
 
     eval_loss = running_loss / len(eval_dataloader)
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
+    all_ids = np.array(all_ids)
 
-    correct = (all_preds == all_labels).astype(np.int32)
+    incorrect_mask = all_preds != all_labels
+    incorrect_preds = all_preds[incorrect_mask].tolist()
+    incorrect_ids = all_ids[incorrect_mask].tolist()
 
     results = {
         "loss": eval_loss,
@@ -501,8 +512,8 @@ def evaluate(
         "recall": recall_score(y_true=all_labels, y_pred=all_preds),
         "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
         "report": classification_report(y_true=all_labels, y_pred=all_preds),
-        "correct": correct.tolist(),
-        "preds": all_preds.tolist(),
+        "preds": incorrect_preds,
+        "ids": incorrect_ids,
     }
     return results
 

@@ -5,12 +5,15 @@ from transformers import BertTokenizer
 from typing import Any
 
 
+DATASET_TO_VIDEO_NAME_KEY = {"Ego4D": "EG_ID", "Youtube": "video_name"}
+
+
 def load_dataset(
     args: Any,
     tokenizer: BertTokenizer,
     mode: str,
 ) -> Dataset:
-    all_input_ids, all_input_mask, all_label = [], [], []
+    all_id, all_input_ids, all_input_mask, all_label = [], [], [], []
 
     json_path = f"{args.data_dir}/{mode}.json"
     with open(json_path, "r") as f:
@@ -20,7 +23,9 @@ def load_dataset(
         dialogues = game["Dialogue"]
         context = [[]] * args.context_size
 
-        for record in dialogues:
+        for i, record in enumerate(dialogues):
+            id = f"{game[DATASET_TO_VIDEO_NAME_KEY[args.dataset]]}_{game['Game_ID']}_{i + 1}"
+
             label = 1 if args.strategy in record["annotation"] else 0
             utterance = record["utterance"]
 
@@ -43,11 +48,13 @@ def load_dataset(
             assert len(input_ids) == args.max_seq_length
             assert len(input_mask) == args.max_seq_length
 
+            all_id.append(id)
             all_input_ids.append(input_ids)
             all_input_mask.append(input_mask)
             all_label.append(label)
 
     dataset_dict = {
+        "id": all_id,
         "input_ids": np.array(all_input_ids, dtype=np.int32),
         "attention_mask": np.array(all_input_mask, dtype=np.int32),
         "labels": np.array(all_label, dtype=np.int32),
