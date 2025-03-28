@@ -1,6 +1,6 @@
 model_types=(bert whisper)
 datasets=(Youtube)
-strategies=("Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence")
+strategies=("Identity Declaration" "Accusation" "Interrogation" "Call for Action" "Defense" "Evidence")
 seeds=(12)
 
 for model_type in ${model_types[@]}
