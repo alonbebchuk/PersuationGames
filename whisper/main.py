@@ -241,13 +241,9 @@ def get_adjusted_batch_size(
     min_batch_size = n_devices * 2
     global_batch_size = max(original_batch_size, min_batch_size)
 
-    if global_batch_size != original_batch_size:
-        logger.warning(f"Adjusting {name} size from {original_batch_size} to {global_batch_size} to ensure at least 2 samples per device")
-
     per_device_batch_size = global_batch_size // n_devices
     if global_batch_size % n_devices != 0:
         adjusted_batch_size = per_device_batch_size * n_devices
-        logger.warning(f"Further adjusting {name} size from {global_batch_size} to {adjusted_batch_size} to be divisible by {n_devices} devices")
         global_batch_size = adjusted_batch_size
 
     return global_batch_size
@@ -318,13 +314,9 @@ def train(
     model: FlaxWhisperForConditionalGeneration,
     train_dataset: Dataset,
     val_dataset: Dataset,
-) -> Tuple[int, float, float]:
+) -> None:
     devices = jax.local_devices()
     n_devices = len(devices)
-    logger.info(f"Available JAX devices: {devices}")
-    logger.info(f"Number of devices: {n_devices}")
-    for i, d in enumerate(devices):
-        logger.info(f"Device {i}: {d.device_kind} - {d.platform}")
 
     worker_id = jax.process_index()
     if worker_id == 0:
@@ -401,19 +393,16 @@ def train(
                 if worker_id == 0:
                     wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr})
                 logging_loss = tr_loss
-                logger.info("logging train info!!!")
-                logger.info("*")
 
         if epoch % args.evaluate_period == 0:
             results = evaluate(state, val_dataset, "val")
             if worker_id == 0:
                 wandb.log({f"eval_{key}": value for key, value in results.items() if key not in ["report", "preds", "correct"]})
             logging_loss = tr_loss
-            logger.info(results["report"])
+            logger.info(f"\n{results['report']}")
 
             if results["f1"] >= best_f1:
                 best_f1 = results["f1"]
-                logger.info("Saving best model to %s", args.best_dir)
 
                 devices = jax.local_devices()
                 n_devices = len(devices)
@@ -434,8 +423,6 @@ def train(
 
     if worker_id == 0:
         wandb.finish()
-
-    return global_step, tr_loss / global_step, best_f1
 
 
 def evaluate(
@@ -462,14 +449,9 @@ def evaluate(
         drop_last=True,
     )
 
-    logger.info("***** Running evaluation %s *****", mode)
-    logger.info("  Num examples = %d", len(eval_dataset))
-    logger.info("  Batch size = %d", global_eval_batch_size)
-
     dummy_lr_fn = create_learning_rate_fn(1, 1, 1, 0)
 
     if isinstance(state.params, dict) and any(isinstance(v, jax.Array) and v.sharding.device_set for v in jax.tree_util.tree_leaves(state.params)):
-        logger.info("Extracting parameters from replicated state for evaluation")
         params = jax.tree.map(
             lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x,
             state.params,
@@ -551,19 +533,14 @@ def main() -> None:
     mp.set_start_method("spawn", force=True)
 
     logger.info("------NEW RUN-----")
-    logger.info("dataset %s, strategy %s, random seed %s", args.dataset, args.strategy, args.seed)
     logger.info("Training/evaluation parameters %s", args)
-    logger.info(f"Using {args.num_workers} workers for data loading")
 
     set_seeds()
 
     datasets = load_datasets()
 
     model = MODEL_CLASS()
-    global_step, tr_loss, best_f1 = train(model, datasets["train"], datasets["val"])
-
-    logger.info(" global_step = %s, average loss = %s, best eval f1 = %s", global_step, tr_loss, best_f1)
-    logger.info("Reloading best model")
+    train(model, datasets["train"], datasets["val"])
 
     model = FlaxWhisperForConditionalGeneration.from_pretrained(args.best_dir, local_files_only=True)
     shutil.rmtree(args.best_dir)
