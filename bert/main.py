@@ -182,20 +182,80 @@ def get_adjusted_batch_size(
     return global_batch_size
 
 
+def train_step(
+    state: TrainState,
+    batch: Dict[str, jnp.ndarray],
+    dropout_rng: jnp.ndarray,
+) -> Tuple[TrainState, jnp.ndarray]:
+    def loss_fn(
+        params: Dict[str, Any],
+    ) -> jnp.ndarray:
+        outputs = state.apply_fn(
+            **{"params": params},
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            train=True,
+            dropout_rng=dropout_rng,
+        )
+        loss = state.loss_fn(outputs.logits, batch["labels"])
+        return jax.lax.pmean(loss, axis_name="batch")
+
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
+    grads = jax.lax.pmean(grads, axis_name="batch")
+    state = state.apply_gradients(grads=grads)
+    return state, loss
+
+
+def eval_step(
+    state: TrainState,
+    batch: Dict[str, jnp.ndarray],
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    outputs = state.apply_fn(
+        **{"params": state.params},
+        input_ids=batch["input_ids"],
+        attention_mask=batch["attention_mask"],
+        train=False,
+    )
+    logits = outputs.logits
+    loss = state.loss_fn(logits, batch["labels"])
+    loss = jax.lax.pmean(loss, axis_name="batch")
+    pred = state.logits_fn(logits)
+    return loss, pred, batch["labels"]
+
+
+p_train_step = jax.pmap(
+    train_step,
+    axis_name="batch",
+    in_axes=(0, 0, 0),
+    donate_argnums=(0,),
+)
+
+p_eval_step = jax.pmap(
+    eval_step,
+    axis_name="batch",
+    in_axes=(0, 0),
+)
+
+
 def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
     val_dataset: Dataset,
 ) -> Tuple[int, float, float]:
+    devices = jax.local_devices()
+    n_devices = len(devices)
+    logger.info(f"Available JAX devices: {devices}")
+    logger.info(f"Number of devices: {n_devices}")
+    for i, d in enumerate(devices):
+        logger.info(f"Device {i}: {d.device_kind} - {d.platform}")
+
     worker_id = jax.process_index()
     if worker_id == 0:
         wandb.init(project="werewolf", name=f"bert-{args.dataset}-{args.strategy}-seed{args.seed}", tags=["bert", args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
 
-    devices = jax.local_devices()
-    n_devices = len(devices)
-    logger.info(f"Training using {n_devices} devices")
-
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices, "batch")
+    per_device_batch_size = global_batch_size // n_devices
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -218,30 +278,8 @@ def train(
 
     rng = jax.random.PRNGKey(args.seed)
     state = create_train_state(model, learning_rate_fn)
-    state = replicate_train_state(state, devices)
-
-    @jax.pmap
-    def train_step(
-        state: TrainState,
-        batch: Dict[str, jnp.ndarray],
-        dropout_rng: jnp.ndarray,
-    ) -> Tuple[TrainState, jnp.ndarray]:
-        def loss_fn(
-            params: Dict[str, Any],
-        ) -> jnp.ndarray:
-            outputs = state.apply_fn(
-                **{"params": params},
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                train=True,
-                dropout_rng=dropout_rng,
-            )
-            return state.loss_fn(outputs.logits, batch["labels"])
-
-        grad_fn = jax.value_and_grad(loss_fn)
-        loss, grads = grad_fn(state.params)
-        state = state.apply_gradients(grads=grads)
-        return state, loss
+    state = jax.device_put_replicated(state, devices)
+    state = jax.pmap(lambda x: x)(state)
 
     global_step = 0
     epochs_trained = 0
@@ -259,14 +297,20 @@ def train(
                 continue
 
             batch = {
-                k: jnp.array(v).reshape((n_devices, -1) + v.shape[1:])
+                k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
+                for k, v in batch.items()
+            }
+
+            batch = {
+                k: jax.device_put_sharded(list(v), devices)
                 for k, v in batch.items()
             }
 
             rng, dropout_rng = jax.random.split(rng)
             dropout_rngs = jax.random.split(dropout_rng, n_devices)
+            dropout_rngs = jax.device_put_sharded(list(dropout_rngs), devices)
 
-            state, loss = train_step(state, batch, dropout_rngs)
+            state, loss = p_train_step(state, batch, dropout_rngs)
             tr_loss += jnp.mean(loss).item()
             global_step += 1
 
@@ -353,33 +397,34 @@ def evaluate(
     eval_model.params = params
 
     eval_state = create_train_state(eval_model, dummy_lr_fn)
+    eval_state = jax.device_put_replicated(eval_state, devices)
+    eval_state = jax.pmap(lambda x: x)(eval_state)
 
-    total_samples = len(eval_dataset)
-    all_preds = np.zeros(total_samples, dtype=np.int32)
-    all_labels = np.zeros(total_samples, dtype=np.int32)
     running_loss = 0.0
-    sample_idx = 0
+    all_preds = []
+    all_labels = []
 
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        batch = {k: jnp.array(v) for k, v in batch.items()}
-        batch_size = len(batch["labels"])
+        per_device_batch_size = global_eval_batch_size // n_devices
+        batch = {
+            k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
+            for k, v in batch.items()
+        }
 
-        outputs = eval_state.apply_fn(
-            **{"params": eval_state.params},
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            train=False,
-        )
-        loss = eval_state.loss_fn(outputs.logits, batch["labels"])
-        pred = eval_state.logits_fn(outputs.logits)
+        batch = {
+            k: jax.device_put_sharded(list(v), devices)
+            for k, v in batch.items()
+        }
 
-        running_loss += loss.item()
+        loss, pred, labels = p_eval_step(eval_state, batch)
 
-        all_preds[sample_idx:sample_idx + batch_size] = np.array(pred)
-        all_labels[sample_idx:sample_idx + batch_size] = np.array(batch["labels"])
-        sample_idx += batch_size
+        running_loss += jnp.mean(loss).item()
+        all_preds.extend(jax.device_get(pred).reshape(-1))
+        all_labels.extend(jax.device_get(labels).reshape(-1))
 
     eval_loss = running_loss / len(eval_dataloader)
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
 
     correct = (all_preds == all_labels).astype(np.int32)
 
@@ -440,6 +485,8 @@ def main() -> None:
     shutil.rmtree(args.best_dir)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0))
+    state = jax.device_put_replicated(state, jax.local_devices())
+    state = jax.pmap(lambda x: x)(state)
 
     for split, dataset in [("val", datasets["val"]), ("test", datasets["test"])]:
         write_json_file(evaluate(state, dataset, split), f"{args.out_dir}/results_{split}.json")

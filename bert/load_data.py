@@ -22,15 +22,14 @@ def load_data(
     mode: str,
 ) -> None:
     json_path = f"{args.data_dir}/{mode}.json"
-    if not os.path.exists(json_path):
-        json_url = f"{HUGGINGFACE_DATASET_URL}/{args.dataset}/split/{mode}.json"
+    json_url = f"{HUGGINGFACE_DATASET_URL}/{args.dataset}/split/{mode}.json"
 
-        response = requests.get(json_url)
-        response.raise_for_status()
-        games = response.json()
+    response = requests.get(json_url)
+    response.raise_for_status()
+    games = response.json()
 
-        with open(json_path, "w") as f:
-            json.dump(games, f)
+    with open(json_path, "w") as f:
+        json.dump(games, f)
 
 
 if __name__ == "__main__":
