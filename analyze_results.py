@@ -150,23 +150,55 @@ def plot_metrics_comparison(
         plt.close()
 
 
+def plot_table(
+    df: pd.DataFrame,
+    title: str,
+    filename: str,
+    analysis_dir: str,
+) -> None:
+    _, ax = plt.subplots(figsize=(12, len(df) * 0.5 + 1))
+    ax.axis('tight')
+    ax.axis('off')
+
+    table = ax.table(cellText=df.values, colLabels=df.columns, rowLabels=df.index, cellLoc='center', loc='center')
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1.2, 1.5)
+    
+    plt.title(title, pad=20)
+    
+    plt.savefig(f'{analysis_dir}/{filename}.png', bbox_inches='tight', dpi=300)
+    plt.close()
+
+
+def create_table_visualizations(
+    df: pd.DataFrame,
+    analysis_dir: str,
+) -> None:
+    metrics = ['accuracy', 'f1', 'class_0_f1', 'class_1_f1']
+
+    overall = df.groupby('model')[metrics].mean().round(3)
+    plot_table(overall, 'Overall Model Comparison', 'overall_table', analysis_dir)
+
+    summary = df.groupby(['model', 'strategy'])[metrics].mean().round(3)
+    summary = summary.unstack(level=0)
+    plot_table(summary, 'Strategy-wise Comparison', 'strategy_comparison_table', analysis_dir)
+
+
 def main():
-    base_path = "out"
     models = ["bert", "whisper"]
     datasets = ["Youtube"]
-
     strategies = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
     seeds = [12]
 
+    analysis_dir = 'analysis'
+    os.makedirs(analysis_dir, exist_ok=True)
+
     df = load_results(models, datasets, strategies, seeds)
 
-    tables = create_comparison_tables(df)
-
-    os.makedirs('analysis', exist_ok=True)
-    for name, table in tables.items():
-        table.to_csv(f'analysis/{name}_comparison.csv')
-
-    plot_metrics_comparison(df, 'analysis')
+    plot_metrics_comparison(df, analysis_dir)
+    create_table_visualizations(df, analysis_dir)
 
 
 if __name__ == "__main__":
