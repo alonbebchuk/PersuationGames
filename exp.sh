@@ -20,6 +20,10 @@ do
       for seed in ${seeds[@]}
       do
         python3.10 ${model_type}/main.py --dataset ${dataset} --strategy="${strategy}" --seed ${seed}
+        if [ "$model_type" == "whisper" ]
+        then
+          python3.10 ${model_type}/main.py --dataset ${dataset} --strategy="${strategy}" --seed ${seed} --with_transcript
+        fi
       done
     done
   done

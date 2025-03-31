@@ -28,12 +28,14 @@ from typing import (
 )
 
 
-FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
-TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-small")
+FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3-turbo")
+TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-large-v3-turbo")
 
 
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
-    return FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+    model = FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3-turbo")
+    model.params = model.to_fp32(model.params)
+    return model
 
 
 logger = log.getLogger(__name__)
@@ -43,13 +45,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--strategy", type=str, required=True, help="Name of strategy: Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
 parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
+parser.add_argument("--with_transcript", action="store_true", help="Whether to use transcript data")
 # optional
 parser.add_argument("--adam_b1", type=float, default=0.9, help="Adam b1")
 parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
 parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
-parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
-parser.add_argument("--eval_batch_size", type=int, default=16, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", type=int, default=8, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", type=int, default=2, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", type=int, default=40, help="Log every X updates steps.")
@@ -63,8 +66,9 @@ args = parser.parse_args()
 
 args.data_dir = f"/dev/shm/data/whisper/{args.dataset}"
 
-args.best_dir = f"/dev/shm/best/whisper/{args.dataset}/{args.strategy}/{args.seed}"
-args.out_dir = f"/dev/shm/out/whisper/{args.dataset}/{args.strategy}/{args.seed}"
+args.model_name = "whisper-audio-and-text" if args.with_transcript else "whisper-audio"
+args.best_dir = f"/dev/shm/best/{args.model_name}/{args.dataset}/{args.strategy}/{args.seed}"
+args.out_dir = f"/dev/shm/out/{args.model_name}/{args.dataset}/{args.strategy}/{args.seed}"
 
 os.makedirs(args.best_dir, exist_ok=True)
 os.makedirs(args.out_dir, exist_ok=True)
@@ -239,9 +243,8 @@ def replicate_train_state(
 def get_adjusted_batch_size(
     original_batch_size: int,
     n_devices: int,
-    name: str,
 ) -> int:
-    min_batch_size = n_devices * 2
+    min_batch_size = n_devices
     global_batch_size = max(original_batch_size, min_batch_size)
 
     per_device_batch_size = global_batch_size // n_devices
@@ -323,9 +326,9 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"whisper-{args.dataset}-{args.strategy}-seed{args.seed}", tags=["whisper", args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"{args.model_name}-{args.dataset}-{args.strategy}-seed{args.seed}", tags=[args.model_name, args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
 
-    global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices, "batch")
+    global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
 
     audio_collator = AudioCollator(batch_size=global_batch_size)
@@ -437,7 +440,7 @@ def evaluate(
     devices = jax.local_devices()
     n_devices = len(devices)
 
-    global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices, "eval batch")
+    global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices)
     audio_collator = AudioCollator(batch_size=global_eval_batch_size)
     audio_collator.load_cache(args.data_dir, mode)
 
@@ -554,6 +557,7 @@ def main() -> None:
     train(model, datasets["train"], datasets["val"])
 
     model = FlaxWhisperForConditionalGeneration.from_pretrained(args.best_dir, local_files_only=True)
+    model.params = model.to_fp32(model.params)
     shutil.rmtree(args.best_dir)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0))

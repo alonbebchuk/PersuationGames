@@ -28,7 +28,20 @@ STRATEGY_TO_STRATEGY_DEFINITION = {
 }
 
 
-class PromptBuilder:
+class PromptBuilderWithoutTranscript:
+    def __init__(self, args: Any, tokenizer: WhisperTokenizer):
+        self.args = args
+        self.tokenizer = tokenizer
+
+        prompt_prefix = PROMPT_PREFIX.format(strategy=self.args.strategy, strategy_definition=STRATEGY_TO_STRATEGY_DEFINITION[self.args.strategy])
+        prompt_suffix = PROMPT_SUFFIX.format(strategy=self.args.strategy)
+        self.prompt_tokens = ["<|startoftranscript|>", "<|notimestamps|>"] + tokenizer.tokenize(prompt_prefix) + tokenizer.tokenize(prompt_suffix)
+    
+    def get_prompt_tokens(self) -> list[str]:
+        return self.prompt_tokens
+
+
+class PromptBuilderWithTranscript:
     def __init__(self, args: Any, tokenizer: WhisperTokenizer):
         self.args = args
         self.tokenizer = tokenizer
@@ -46,10 +59,11 @@ class PromptBuilder:
         self.prompt_last_utterance_prefix_tokens = tokenizer.tokenize(PROMPT_LAST_UTTERANCE_PREFIX)
         self.prompt_last_utterance_prefix_length = len(self.prompt_last_utterance_prefix_tokens)
 
-        self.prompt_suffix_tokens = tokenizer.tokenize(PROMPT_SUFFIX.format(strategy=self.args.strategy))
+        prompt_suffix = PROMPT_SUFFIX.format(strategy=self.args.strategy)
+        self.prompt_suffix_tokens = tokenizer.tokenize(prompt_suffix)
         self.prompt_suffix_length = len(self.prompt_suffix_tokens)
 
-    def build_prompt_tokens(self, previous_utterance_tokens_list: list[list[str]], utterance_tokens: list[str]) -> list[str]:
+    def get_prompt_tokens(self, previous_utterance_tokens_list: list[list[str]], utterance_tokens: list[str]) -> list[str]:
         max_utterance_len = self.args.max_seq_length - \
             self.prompt_prefix_length - \
             self.prompt_last_utterance_prefix_length - \

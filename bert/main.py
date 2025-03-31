@@ -28,11 +28,11 @@ from typing import (
 )
 
 
-TOKENIZER = BertTokenizer.from_pretrained("bert-base-uncased")
+TOKENIZER = BertTokenizer.from_pretrained("google-bert/bert-large-uncased")
 
 
 def MODEL_CLASS() -> FlaxBertForSequenceClassification:
-    return FlaxBertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2)
+    return FlaxBertForSequenceClassification.from_pretrained("google-bert/bert-large-uncased", num_labels=2)
 
 
 logger = log.getLogger(__name__)
@@ -166,7 +166,6 @@ def replicate_train_state(
 def get_adjusted_batch_size(
     original_batch_size: int,
     n_devices: int,
-    name: str,
 ) -> int:
     min_batch_size = n_devices * 2
     global_batch_size = max(original_batch_size, min_batch_size)
@@ -247,7 +246,7 @@ def train(
     if worker_id == 0:
         wandb.init(project="werewolf", name=f"bert-{args.dataset}-{args.strategy}-seed{args.seed}", tags=["bert", args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
 
-    global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices, "batch")
+    global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
 
     train_dataloader = DataLoader(
@@ -352,7 +351,7 @@ def evaluate(
     devices = jax.local_devices()
     n_devices = len(devices)
 
-    global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices, "eval batch")
+    global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices)
 
     eval_dataloader = DataLoader(
         eval_dataset,

@@ -1,7 +1,7 @@
 import json
 import numpy as np
 from datasets import Dataset
-from prompt_builder import PromptBuilder
+from prompt_builder import PromptBuilderWithoutTranscript, PromptBuilderWithTranscript
 from transformers import WhisperTokenizer
 from typing import Any
 
@@ -20,7 +20,10 @@ def load_dataset(
     with open(json_path, "r") as f:
         games = json.load(f)
 
-    prompt_builder = PromptBuilder(args, tokenizer)
+    if args.with_transcript:
+        prompt_builder = PromptBuilderWithTranscript(args, tokenizer)
+    else:
+        prompt_builder = PromptBuilderWithoutTranscript(args, tokenizer)
 
     for game in games:
         dialogues = game["Dialogue"]
@@ -30,13 +33,15 @@ def load_dataset(
             id = f"{game[DATASET_TO_VIDEO_NAME_KEY[args.dataset]]}_{game['Game_ID']}_{i + 1}"
 
             label = 1 if args.strategy in record["annotation"] else 0
-            utterance = record["utterance"] + "\n"
 
-            utterance_tokens = tokenizer.tokenize(utterance)
-            tokens = prompt_builder.build_prompt_tokens(previous_utterence_tokens_list, utterance_tokens)
-            if len(previous_utterence_tokens_list) == args.context_size:
-                previous_utterence_tokens_list.pop(0)
-            previous_utterence_tokens_list.append(utterance_tokens)
+            if args.with_transcript:
+                utterance_tokens = tokenizer.tokenize(record["transcript"])
+                tokens = prompt_builder.get_prompt_tokens(previous_utterence_tokens_list, utterance_tokens)
+                if len(previous_utterence_tokens_list) == args.context_size:
+                    previous_utterence_tokens_list.pop(0)
+                previous_utterence_tokens_list.append(utterance_tokens)
+            else:
+                tokens = prompt_builder.get_prompt_tokens()
 
             input_ids = tokenizer.convert_tokens_to_ids(tokens)
             input_mask = [1] * len(input_ids)
