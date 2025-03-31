@@ -35,7 +35,7 @@ def load_dataset(
             label = 1 if args.strategy in record["annotation"] else 0
 
             if args.with_transcript:
-                utterance_tokens = tokenizer.tokenize(record["transcript"])
+                utterance_tokens = tokenizer.tokenize(record["utterance"])
                 tokens = prompt_builder.get_prompt_tokens(previous_utterence_tokens_list, utterance_tokens)
                 if len(previous_utterence_tokens_list) == args.context_size:
                     previous_utterence_tokens_list.pop(0)

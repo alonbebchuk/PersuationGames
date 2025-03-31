@@ -11,7 +11,7 @@ import random
 import shutil
 import wandb
 from datasets import Dataset, DatasetDict
-from flax import struct, traverse_util
+from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
 from load_dataset import load_dataset
@@ -28,13 +28,12 @@ from typing import (
 )
 
 
-FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3-turbo")
-TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-large-v3-turbo")
+FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-medium")
+TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-medium")
 
 
 def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
-    model = FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3-turbo")
-    model.params = model.to_fp32(model.params)
+    model = FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-medium")
     return model
 
 
@@ -50,9 +49,9 @@ parser.add_argument("--with_transcript", action="store_true", help="Whether to u
 parser.add_argument("--adam_b1", type=float, default=0.9, help="Adam b1")
 parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
 parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
-parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
+parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
-parser.add_argument("--eval_batch_size", type=int, default=8, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", type=int, default=16, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", type=int, default=2, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", type=int, default=40, help="Log every X updates steps.")
@@ -355,8 +354,7 @@ def train(
 
     rng = jax.random.PRNGKey(args.seed)
     state = create_train_state(model, learning_rate_fn)
-    state = jax.device_put_replicated(state, devices)
-    state = jax.pmap(lambda x: x)(state)
+    state = jax_utils.replicate(state)
 
     global_step = 0
     epochs_trained = 0
@@ -456,23 +454,6 @@ def evaluate(
         drop_last=True,
     )
 
-    dummy_lr_fn = create_learning_rate_fn(1, 1, 1, 0)
-
-    if isinstance(state.params, dict) and any(isinstance(v, jax.Array) and v.sharding.device_set for v in jax.tree_util.tree_leaves(state.params)):
-        params = jax.tree.map(
-            lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x,
-            state.params,
-        )
-    else:
-        params = state.params
-
-    eval_model = MODEL_CLASS()
-    eval_model.params = params
-
-    eval_state = create_train_state(eval_model, dummy_lr_fn)
-    eval_state = jax.device_put_replicated(eval_state, devices)
-    eval_state = jax.pmap(lambda x: x)(eval_state)
-
     running_loss = 0.0
     all_preds = []
     all_labels = []
@@ -492,7 +473,7 @@ def evaluate(
             for k, v in batch.items()
         }
 
-        loss, pred, labels = p_eval_step(eval_state, batch)
+        loss, pred, labels = p_eval_step(state, batch)
 
         running_loss += jnp.mean(loss).item()
         all_preds.extend(jax.device_get(pred).reshape(-1))
@@ -557,7 +538,6 @@ def main() -> None:
     train(model, datasets["train"], datasets["val"])
 
     model = FlaxWhisperForConditionalGeneration.from_pretrained(args.best_dir, local_files_only=True)
-    model.params = model.to_fp32(model.params)
     shutil.rmtree(args.best_dir)
 
     state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0))

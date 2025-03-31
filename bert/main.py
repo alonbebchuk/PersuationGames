@@ -11,7 +11,7 @@ import random
 import shutil
 import wandb
 from datasets import Dataset, DatasetDict
-from flax import struct, traverse_util
+from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
 from load_dataset import load_dataset
@@ -270,8 +270,7 @@ def train(
 
     rng = jax.random.PRNGKey(args.seed)
     state = create_train_state(model, learning_rate_fn)
-    state = jax.device_put_replicated(state, devices)
-    state = jax.pmap(lambda x: x)(state)
+    state = jax_utils.replicate(state)
 
     global_step = 0
     epochs_trained = 0
@@ -365,23 +364,6 @@ def evaluate(
         drop_last=True,
     )
 
-    dummy_lr_fn = create_learning_rate_fn(1, 1, 1, 0)
-
-    if isinstance(state.params, dict) and any(isinstance(v, jax.Array) and v.sharding.device_set for v in jax.tree_util.tree_leaves(state.params)):
-        params = jax.tree.map(
-            lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x,
-            state.params,
-        )
-    else:
-        params = state.params
-
-    eval_model = MODEL_CLASS()
-    eval_model.params = params
-
-    eval_state = create_train_state(eval_model, dummy_lr_fn)
-    eval_state = jax.device_put_replicated(eval_state, devices)
-    eval_state = jax.pmap(lambda x: x)(eval_state)
-
     running_loss = 0.0
     all_preds = []
     all_labels = []
@@ -401,7 +383,7 @@ def evaluate(
             for k, v in batch.items()
         }
 
-        loss, pred, labels = p_eval_step(eval_state, batch)
+        loss, pred, labels = p_eval_step(state, batch)
 
         running_loss += jnp.mean(loss).item()
         all_preds.extend(jax.device_get(pred).reshape(-1))
