@@ -61,11 +61,8 @@ parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight deca
 args = parser.parse_args()
 
 args.data_dir = f"/dev/shm/data/bert/{args.dataset}"
-
-args.best_dir = f"/dev/shm/best/bert/{args.dataset}/{args.strategy}/{args.seed}"
 args.out_dir = f"/dev/shm/out/bert/{args.dataset}/{args.strategy}/{args.seed}"
 
-os.makedirs(args.best_dir, exist_ok=True)
 os.makedirs(args.out_dir, exist_ok=True)
 
 logger.setLevel(log.INFO)
@@ -156,13 +153,6 @@ def collate_fn(
     }
 
 
-def replicate_train_state(
-    state: TrainState,
-    devices: List[Any],
-) -> TrainState:
-    return jax.device_put_replicated(state, devices)
-
-
 def get_adjusted_batch_size(
     original_batch_size: int,
     n_devices: int,
@@ -238,6 +228,7 @@ def train(
     model: FlaxBertForSequenceClassification,
     train_dataset: Dataset,
     val_dataset: Dataset,
+    test_dataset: Dataset,
 ) -> None:
     devices = jax.local_devices()
     n_devices = len(devices)
@@ -316,28 +307,18 @@ def train(
                 logging_loss = tr_loss
 
         if epoch % args.evaluate_period == 0:
-            results = evaluate(state, val_dataset)
+            results_val = evaluate(state, val_dataset)
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results.items() if key not in ["report", "preds", "ids"]})
+                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key not in ["report", "preds", "ids"]})
             logging_loss = tr_loss
-            logger.info(f"\n{results['report']}")
+            logger.info(f"\n{results_val['report']}")
 
-            if results["f1"] >= best_f1:
-                best_f1 = results["f1"]
+            if results_val["f1"] >= best_f1:
+                best_f1 = results_val["f1"]
 
-                devices = jax.local_devices()
-                n_devices = len(devices)
-                unreplicated_params = jax.tree.map(
-                    lambda x: x[0] if hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == n_devices else x,
-                    state.params,
-                )
-
-                save_model = MODEL_CLASS()
-                save_model.params = unreplicated_params
-                save_model.save_pretrained(args.best_dir)
-
-                with open(os.path.join(args.best_dir, "training_args.json"), "w") as f:
-                    json.dump(vars(args), f, indent=2)
+                results_test = evaluate(state, test_dataset, "test")
+                write_json_file(results_val, f"{args.out_dir}/results_val.json")
+                write_json_file(results_test, f"{args.out_dir}/results_test.json")
 
     if worker_id == 0:
         wandb.finish()
@@ -445,17 +426,7 @@ def main() -> None:
     datasets = load_datasets()
 
     model = MODEL_CLASS()
-    train(model, datasets["train"], datasets["val"])
-
-    model = FlaxBertForSequenceClassification.from_pretrained(args.best_dir, num_labels=2, local_files_only=True)
-    shutil.rmtree(args.best_dir)
-
-    state = create_train_state(model, create_learning_rate_fn(1, 1, 1, 0))
-    state = jax.device_put_replicated(state, jax.local_devices())
-    state = jax.pmap(lambda x: x)(state)
-
-    for split, dataset in [("val", datasets["val"]), ("test", datasets["test"])]:
-        write_json_file(evaluate(state, dataset), f"{args.out_dir}/results_{split}.json")
+    train(model, datasets["train"], datasets["val"], datasets["test"])
 
 
 if __name__ == "__main__":
