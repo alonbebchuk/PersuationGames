@@ -29,7 +29,6 @@ do
   done
 done
 
-cp -r /dev/shm/data ./
 cp -r /dev/shm/out ./
 
 # rm -rf /dev/shm/*
