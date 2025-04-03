@@ -23,7 +23,7 @@ def get_metrics_for_model(model_dir: str, strategies: List[str]) -> Dict[str, Di
 
 def generate_markdown_table(metric: str, models: List[str], strategies: List[str], metrics_data: Dict[str, Dict[str, Dict[str, float]]]) -> str:
     strategy_width = max([len(f"{metric} {strategy}") for strategy in strategies] + [len(f"{metric} Average")])
-    model_widths = [max(len(model), 5) for model in models]
+    model_widths = [max(len(model), 6) for model in models]
     
     header = f"| {' ' * (strategy_width - 5)}Class |"
     for i, model in enumerate(models):

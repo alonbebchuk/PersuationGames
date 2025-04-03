@@ -1,8 +1,8 @@
 # Model Performance Tables
 
 ## F1 Scores
-|                   Class |  bert | whisper-audio | whisper-audio-and-text |
-|-------------------------|-------|---------------|------------------------|
+|                   Class |  bert  | whisper-audio | whisper-audio-and-text |
+|-------------------------|--------|---------------|------------------------|
 | f1 Identity Declaration | 81.818 |        47.813 |                 85.057 |
 | f1 Accusation           | 67.071 |        43.802 |                 65.135 |
 | f1 Interrogation        | 90.364 |        59.660 |                 89.113 |
@@ -12,8 +12,8 @@
 | f1 Average              | 69.331 |        46.096 |                 70.033 |
 
 ## Accuracy Scores
-|                         Class |  bert | whisper-audio | whisper-audio-and-text |
-|-------------------------------|-------|---------------|------------------------|
+|                         Class |  bert  | whisper-audio | whisper-audio-and-text |
+|-------------------------------|--------|---------------|------------------------|
 | accuracy Identity Declaration | 97.656 |        95.028 |                 98.194 |
 | accuracy Accusation           | 89.397 |        84.889 |                 88.194 |
 | accuracy Interrogation        | 96.233 |        86.139 |                 95.806 |
