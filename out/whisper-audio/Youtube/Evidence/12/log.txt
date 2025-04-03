@@ -1,52 +1,52 @@
-04/01/2025 09:23:20 - INFO - __main__ - ------NEW RUN-----
-04/01/2025 09:23:20 - INFO - __main__ - Training/evaluation parameters Namespace(dataset='Youtube', strategy='Evidence', seed=12, with_transcript=False, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=16, context_size=5, eval_batch_size=16, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, data_dir='/dev/shm/data/whisper/Youtube', model_name='whisper-audio', best_dir='/dev/shm/best/whisper-audio/Youtube/Evidence/12', out_dir='/dev/shm/out/whisper-audio/Youtube/Evidence/12')
-04/01/2025 09:39:05 - INFO - __main__ - 
+04/03/2025 11:21:05 - INFO - __main__ - ------NEW RUN-----
+04/03/2025 11:21:05 - INFO - __main__ - Training/evaluation parameters Namespace(dataset='Youtube', strategy='Evidence', seed=12, with_transcript=False, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=16, context_size=5, eval_batch_size=16, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, model_name='whisper-audio', data_dir='/dev/shm/data/whisper/Youtube', out_dir='/dev/shm/out/whisper-audio/Youtube/Evidence/12')
+04/03/2025 11:36:42 - INFO - __main__ - 
               precision    recall  f1-score   support
 
-           0       0.93      1.00      0.96      2274
-           1       0.78      0.04      0.07       190
-
-    accuracy                           0.92      2464
-   macro avg       0.85      0.52      0.52      2464
-weighted avg       0.91      0.92      0.89      2464
-
-04/01/2025 10:00:10 - INFO - __main__ - 
-              precision    recall  f1-score   support
-
-           0       0.94      0.99      0.96      2274
-           1       0.57      0.23      0.33       190
+           0       0.93      0.99      0.96      2274
+           1       0.62      0.11      0.19       190
 
     accuracy                           0.93      2464
-   macro avg       0.76      0.61      0.65      2464
+   macro avg       0.77      0.55      0.57      2464
+weighted avg       0.91      0.93      0.90      2464
+
+04/03/2025 11:59:20 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.94      0.98      0.96      2274
+           1       0.49      0.24      0.32       190
+
+    accuracy                           0.92      2464
+   macro avg       0.71      0.61      0.64      2464
+weighted avg       0.90      0.92      0.91      2464
+
+04/03/2025 12:21:57 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.94      0.98      0.96      2274
+           1       0.50      0.27      0.35       190
+
+    accuracy                           0.92      2464
+   macro avg       0.72      0.63      0.66      2464
+weighted avg       0.91      0.92      0.91      2464
+
+04/03/2025 12:44:34 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.95      0.97      0.96      2274
+           1       0.45      0.34      0.39       190
+
+    accuracy                           0.92      2464
+   macro avg       0.70      0.65      0.67      2464
+weighted avg       0.91      0.92      0.91      2464
+
+04/03/2025 13:07:10 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.94      0.98      0.96      2274
+           1       0.54      0.27      0.36       190
+
+    accuracy                           0.93      2464
+   macro avg       0.74      0.62      0.66      2464
 weighted avg       0.91      0.93      0.91      2464
-
-04/01/2025 10:21:12 - INFO - __main__ - 
-              precision    recall  f1-score   support
-
-           0       0.94      0.97      0.96      2274
-           1       0.45      0.31      0.37       190
-
-    accuracy                           0.92      2464
-   macro avg       0.70      0.64      0.66      2464
-weighted avg       0.91      0.92      0.91      2464
-
-04/01/2025 10:42:14 - INFO - __main__ - 
-              precision    recall  f1-score   support
-
-           0       0.94      0.97      0.95      2274
-           1       0.43      0.30      0.35       190
-
-    accuracy                           0.91      2464
-   macro avg       0.68      0.63      0.65      2464
-weighted avg       0.90      0.91      0.91      2464
-
-04/01/2025 11:03:02 - INFO - __main__ - 
-              precision    recall  f1-score   support
-
-           0       0.94      0.97      0.96      2274
-           1       0.47      0.32      0.38       190
-
-    accuracy                           0.92      2464
-   macro avg       0.70      0.64      0.67      2464
-weighted avg       0.91      0.92      0.91      2464
 

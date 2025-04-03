@@ -8,9 +8,8 @@ import numpy as np
 import optax
 import os
 import random
-import shutil
 import wandb
-from datasets import Dataset, DatasetDict
+from datasets import Dataset
 from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
@@ -26,15 +25,6 @@ from typing import (
     List,
     Tuple,
 )
-
-
-FEATURE_EXTRACTOR = WhisperFeatureExtractor.from_pretrained("openai/whisper-medium")
-TOKENIZER = WhisperTokenizer.from_pretrained("openai/whisper-medium")
-
-
-def MODEL_CLASS() -> FlaxWhisperForConditionalGeneration:
-    model = FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-medium")
-    return model
 
 
 logger = log.getLogger(__name__)
@@ -63,9 +53,8 @@ parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.data_dir = f"/dev/shm/data/whisper/{args.dataset}"
-
 args.model_name = "whisper-audio-and-text" if args.with_transcript else "whisper-audio"
+args.data_dir = f"/dev/shm/data/whisper/{args.dataset}"
 args.out_dir = f"/dev/shm/out/{args.model_name}/{args.dataset}/{args.strategy}/{args.seed}"
 
 os.makedirs(args.out_dir, exist_ok=True)
@@ -95,10 +84,12 @@ NO_TOKEN_ID = 4540
 class AudioCollator:
     def __init__(
         self,
+        feature_extractor: WhisperFeatureExtractor,
         batch_size: int,
     ) -> None:
-        self.cache = {}
+        self.feature_extractor = feature_extractor
         self.batch_size = batch_size
+        self.cache = {}
 
     def load_cache(
         self,
@@ -140,7 +131,7 @@ class AudioCollator:
             labels[i] = sample["labels"]
             ids.append(sample["id"])
 
-        features = FEATURE_EXTRACTOR(
+        features = self.feature_extractor(
             audio_arrays,
             sampling_rate=SAMPLING_RATE,
             return_attention_mask=True,
@@ -307,11 +298,14 @@ p_eval_step = jax.pmap(
 
 
 def train(
+    tokenizer: WhisperTokenizer,
+    feature_extractor: WhisperFeatureExtractor,
     model: FlaxWhisperForConditionalGeneration,
-    train_dataset: Dataset,
-    val_dataset: Dataset,
-    test_dataset: Dataset,
 ) -> None:
+    train_dataset = load_dataset(args, tokenizer, "train")
+    val_dataset = load_dataset(args, tokenizer, "val")
+    test_dataset = load_dataset(args, tokenizer, "test")
+
     devices = jax.local_devices()
     n_devices = len(devices)
 
@@ -322,7 +316,7 @@ def train(
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
 
-    audio_collator = AudioCollator(batch_size=global_batch_size)
+    audio_collator = AudioCollator(feature_extractor, global_batch_size)
     audio_collator.load_cache(args.data_dir, "train")
 
     train_dataloader = DataLoader(
@@ -392,7 +386,7 @@ def train(
                 logging_loss = tr_loss
 
         if epoch % args.evaluate_period == 0:
-            results_val = evaluate(state, val_dataset, "val")
+            results_val = evaluate(feature_extractor, state, val_dataset, "val")
             if worker_id == 0:
                 wandb.log({f"eval_{key}": value for key, value in results_val.items() if key not in ["report", "preds", "ids"]})
             logging_loss = tr_loss
@@ -401,7 +395,7 @@ def train(
             if results_val["f1"] >= best_f1:
                 best_f1 = results_val["f1"]
 
-                results_test = evaluate(state, test_dataset, "test")
+                results_test = evaluate(feature_extractor, state, test_dataset, "test")
                 write_json_file(results_val, f"{args.out_dir}/results_val.json")
                 write_json_file(results_test, f"{args.out_dir}/results_test.json")
 
@@ -410,6 +404,7 @@ def train(
 
 
 def evaluate(
+    feature_extractor: WhisperFeatureExtractor,
     state: TrainState,
     eval_dataset: Dataset,
     mode: str,
@@ -418,7 +413,7 @@ def evaluate(
     n_devices = len(devices)
 
     global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices)
-    audio_collator = AudioCollator(batch_size=global_eval_batch_size)
+    audio_collator = AudioCollator(feature_extractor, global_eval_batch_size)
     audio_collator.load_cache(args.data_dir, mode)
 
     eval_dataloader = DataLoader(
@@ -495,26 +490,24 @@ def set_seeds() -> None:
     jax.random.PRNGKey(args.seed)
 
 
-def load_datasets() -> DatasetDict:
-    datasets = DatasetDict()
-    datasets["train"] = load_dataset(args, TOKENIZER, "train")
-    datasets["val"] = load_dataset(args, TOKENIZER, "val")
-    datasets["test"] = load_dataset(args, TOKENIZER, "test")
-    return datasets
-
-
 def main() -> None:
-    mp.set_start_method("spawn", force=True)
+    try:
+        mp.set_start_method("spawn", force=True)
 
-    logger.info("------NEW RUN-----")
-    logger.info("Training/evaluation parameters %s", args)
+        logger.info("------NEW RUN-----")
+        logger.info("Training/evaluation parameters %s", args)
 
-    set_seeds()
+        set_seeds()
 
-    datasets = load_datasets()
+        model_name = "openai/whisper-medium"
+        tokenizer = WhisperTokenizer.from_pretrained(model_name)
+        feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
+        model = FlaxWhisperForConditionalGeneration.from_pretrained(model_name)
 
-    model = MODEL_CLASS()
-    train(model, datasets["train"], datasets["val"], datasets["test"])
+        train(tokenizer, feature_extractor, model)
+    except Exception as e:
+        logger.error(f"Script failed with error: {str(e)}", exc_info=True)
+        raise e
 
 
 if __name__ == "__main__":

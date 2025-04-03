@@ -31,4 +31,6 @@ done
 
 cp -r /dev/shm/out ./
 
-# rm -rf /dev/shm/*
+python3.10 generate_metric_tables.py
+
+rm -rf /dev/shm/*

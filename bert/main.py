@@ -8,9 +8,8 @@ import numpy as np
 import optax
 import os
 import random
-import shutil
 import wandb
-from datasets import Dataset, DatasetDict
+from datasets import Dataset
 from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
 from flax.training.common_utils import onehot
@@ -26,13 +25,6 @@ from typing import (
     List,
     Tuple,
 )
-
-
-TOKENIZER = BertTokenizer.from_pretrained("google-bert/bert-large-uncased")
-
-
-def MODEL_CLASS() -> FlaxBertForSequenceClassification:
-    return FlaxBertForSequenceClassification.from_pretrained("google-bert/bert-large-uncased", num_labels=2)
 
 
 logger = log.getLogger(__name__)
@@ -225,11 +217,13 @@ p_eval_step = jax.pmap(
 
 
 def train(
+    tokenizer: BertTokenizer,
     model: FlaxBertForSequenceClassification,
-    train_dataset: Dataset,
-    val_dataset: Dataset,
-    test_dataset: Dataset,
 ) -> None:
+    train_dataset = load_dataset(args, tokenizer, "train")
+    val_dataset = load_dataset(args, tokenizer, "val")
+    test_dataset = load_dataset(args, tokenizer, "test")
+
     devices = jax.local_devices()
     n_devices = len(devices)
 
@@ -316,7 +310,7 @@ def train(
             if results_val["f1"] >= best_f1:
                 best_f1 = results_val["f1"]
 
-                results_test = evaluate(state, test_dataset, "test")
+                results_test = evaluate(state, test_dataset)
                 write_json_file(results_val, f"{args.out_dir}/results_val.json")
                 write_json_file(results_test, f"{args.out_dir}/results_test.json")
 
@@ -407,26 +401,23 @@ def set_seeds() -> None:
     jax.random.PRNGKey(args.seed)
 
 
-def load_datasets() -> DatasetDict:
-    datasets = DatasetDict()
-    datasets["train"] = load_dataset(args, TOKENIZER, "train")
-    datasets["val"] = load_dataset(args, TOKENIZER, "val")
-    datasets["test"] = load_dataset(args, TOKENIZER, "test")
-    return datasets
-
-
 def main() -> None:
-    mp.set_start_method("spawn", force=True)
+    try:
+        mp.set_start_method("spawn", force=True)
 
-    logger.info("------NEW RUN-----")
-    logger.info("Training/evaluation parameters %s", args)
+        logger.info("------NEW RUN-----")
+        logger.info("Training/evaluation parameters %s", args)
 
-    set_seeds()
+        set_seeds()
 
-    datasets = load_datasets()
+        model_name = "google-bert/bert-large-uncased"
+        tokenizer = BertTokenizer.from_pretrained(model_name)
+        model = FlaxBertForSequenceClassification.from_pretrained(model_name, num_labels=2)
 
-    model = MODEL_CLASS()
-    train(model, datasets["train"], datasets["val"], datasets["test"])
+        train(tokenizer, model)
+    except Exception as e:
+        logger.error(f"Script failed with error: {str(e)}", exc_info=True)
+        raise e
 
 
 if __name__ == "__main__":

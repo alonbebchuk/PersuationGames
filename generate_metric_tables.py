@@ -4,19 +4,19 @@ from typing import Dict, List, Tuple
 
 
 def read_results_file(file_path: str) -> Tuple[float, float]:
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         data = json.load(f)
-        return data['f1'] * 100, data['accuracy'] * 100
+        return data["f1"] * 100, data["accuracy"] * 100
 
 
 def get_metrics_for_model(model_dir: str, strategies: List[str]) -> Dict[str, Dict[str, float]]:
-    metrics = {'f1': {}, 'accuracy': {}}
+    metrics = {"f1": {}, "accuracy": {}}
 
     for strategy in strategies:
-        results_file = os.path.join(model_dir, 'Youtube', strategy, '12', 'results_test.json')
+        results_file = f"{model_dir}/Youtube/{strategy}/12/results_test.json"
         f1, accuracy = read_results_file(results_file)
-        metrics['f1'][strategy] = f1
-        metrics['accuracy'][strategy] = accuracy
+        metrics["f1"][strategy] = f1
+        metrics["accuracy"][strategy] = accuracy
 
     return metrics
 
@@ -54,31 +54,31 @@ def generate_markdown_table(metric: str, models: List[str], strategies: List[str
 
 
 def main():
-    models = ['bert', 'whisper-audio', 'whisper-audio-and-text']
+    models = ["bert", "whisper-audio", "whisper-audio-and-text"]
     strategies = [
-        'Identity Declaration',
-        'Accusation',
-        'Interrogation',
-        'Call for Action',
-        'Defense',
-        'Evidence'
+        "Identity Declaration",
+        "Accusation",
+        "Interrogation",
+        "Call for Action",
+        "Defense",
+        "Evidence",
     ]
 
     metrics_data = {}
     for model in models:
-        model_dir = os.path.join('out', model)
+        model_dir = f"out/{model}"
         if os.path.exists(model_dir):
             metrics_data[model] = get_metrics_for_model(model_dir, strategies)
 
-    f1_table = generate_markdown_table('F1', models, strategies, metrics_data)
-    accuracy_table = generate_markdown_table('Accuracy', models, strategies, metrics_data)
+    f1_table = generate_markdown_table("f1", models, strategies, metrics_data)
+    accuracy_table = generate_markdown_table("accuracy", models, strategies, metrics_data)
 
     print("F1 Scores Table:")
     print(f1_table)
     print("\nAccuracy Scores Table:")
     print(accuracy_table)
 
-    with open('metric_tables.md', 'w') as f:
+    with open("out/metric_tables.md", "w") as f:
         f.write("# Model Performance Tables\n\n")
         f.write("## F1 Scores\n")
         f.write(f1_table)
