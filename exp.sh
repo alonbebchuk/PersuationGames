@@ -1,24 +1,36 @@
-for dataset in Ego4D Youtube
+model_types=(bert whisper)
+datasets=(Youtube)
+strategies=("Identity Declaration" "Accusation" "Interrogation" "Call for Action" "Defense" "Evidence")
+seeds=(12 42 87)
+
+for model_type in ${model_types[@]}
 do
-  for model_type in bert roberta
+  for dataset in ${datasets[@]}
   do
-    for seed in $(if [ "$model_type" = "bert" ]; then echo "13 42 87"; else echo "227 624 817"; fi)
+    python3.10 ${model_type}/load_data.py --dataset ${dataset}
+  done
+done
+
+for model_type in ${model_types[@]}
+do
+  for dataset in ${datasets[@]}
+  do
+    for strategy in "${strategies[@]}"
     do
-      python3 baselines/main.py \
-        --dataset ${dataset} \
-        --model_type ${model_type} \
-        --context_size 5 \
-        --batch_size 16 \
-        --learning_rate 3e-5 \
-        --seed ${seed} \
-        --output_dir out/${dataset}/${model_type}/${seed} \
-        --overwrite_output_dir
+      for seed in ${seeds[@]}
+      do
+        python3.10 ${model_type}/main.py --dataset ${dataset} --strategy="${strategy}" --seed ${seed}
+        if [ "$model_type" == "whisper" ]
+        then
+          python3.10 ${model_type}/main.py --dataset ${dataset} --strategy="${strategy}" --seed ${seed} --with_transcript
+        fi
+      done
     done
   done
 done
 
-# This experiment can be executed in Google Colab by running the following commands:
-# %cd /content/drive/MyDrive
-# !git clone https://github.com/alonbebchuk/PersuationGames.git
-# %cd /content/drive/MyDrive/PersuationGames
-# !bash exp.sh
+cp -r /dev/shm/out ./
+
+python3.10 generate_metric_tables.py
+
+rm -rf /dev/shm/*

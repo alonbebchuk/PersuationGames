@@ -1,0 +1,52 @@
+04/03/2025 17:05:39 - INFO - __main__ - ------NEW RUN-----
+04/03/2025 17:05:39 - INFO - __main__ - Training/evaluation parameters Namespace(dataset='Youtube', strategy='Accusation', seed=42, adam_b1=0.9, adam_b2=0.999, adam_epsilon=1e-08, batch_size=64, context_size=5, eval_batch_size=256, evaluate_period=2, learning_rate=3e-05, logging_steps=40, max_seq_length=256, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=0, weight_decay=0.0, data_dir='/dev/shm/data/bert/Youtube', out_dir='/dev/shm/out/bert/Youtube/Accusation/42')
+04/03/2025 17:09:22 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.93      0.97      0.95      1963
+           1       0.76      0.60      0.67       341
+
+    accuracy                           0.91      2304
+   macro avg       0.85      0.78      0.81      2304
+weighted avg       0.91      0.91      0.91      2304
+
+04/03/2025 17:12:19 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.96      0.92      0.94      1963
+           1       0.64      0.79      0.71       341
+
+    accuracy                           0.90      2304
+   macro avg       0.80      0.85      0.82      2304
+weighted avg       0.91      0.90      0.91      2304
+
+04/03/2025 17:15:16 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.95      0.93      0.94      1963
+           1       0.63      0.72      0.67       341
+
+    accuracy                           0.90      2304
+   macro avg       0.79      0.82      0.81      2304
+weighted avg       0.90      0.90      0.90      2304
+
+04/03/2025 17:17:24 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.93      0.95      0.94      1963
+           1       0.70      0.60      0.65       341
+
+    accuracy                           0.90      2304
+   macro avg       0.81      0.78      0.80      2304
+weighted avg       0.90      0.90      0.90      2304
+
+04/03/2025 17:19:31 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.95      0.93      0.94      1963
+           1       0.65      0.70      0.68       341
+
+    accuracy                           0.90      2304
+   macro avg       0.80      0.82      0.81      2304
+weighted avg       0.90      0.90      0.90      2304
+
