@@ -56,14 +56,16 @@ def generate_markdown_table(metric: str, models: List[str], strategies: List[str
     
     best_models = {}
     for strategy in strategies:
-        best_model = max(models, key=lambda model: stats_data[model][metric][strategy]["mean"])
-        best_models[strategy] = best_model
+        max_mean = max(stats_data[model][metric][strategy]["mean"] for model in models)
+        best_models[strategy] = [model for model in models if abs(stats_data[model][metric][strategy]["mean"] - max_mean) < 1e-2]
     
     avg_means_by_model = {}
     for model in models:
         means = [stats_data[model][metric][strategy]["mean"] for strategy in strategies]
         avg_means_by_model[model] = np.mean(means)
-    best_models["Average"] = max(models, key=lambda model: avg_means_by_model[model])
+    
+    max_avg_mean = max(avg_means_by_model.values())
+    best_models["Average"] = [model for model in models if abs(avg_means_by_model[model] - max_avg_mean) < 1e-2]
     
     cell_contents = {}
     for model in models:
@@ -74,7 +76,7 @@ def generate_markdown_table(metric: str, models: List[str], strategies: List[str
             mean = stats_data[model][metric][strategy]["mean"]
             std = stats_data[model][metric][strategy]["std"]
             
-            if model == best_models[strategy]:
+            if model in best_models[strategy]:
                 cell_contents[model][strategy] = f"{mean:.2f}({std:.2f})*"
             else:
                 cell_contents[model][strategy] = f"{mean:.2f}({std:.2f})"
@@ -82,12 +84,11 @@ def generate_markdown_table(metric: str, models: List[str], strategies: List[str
             avg_means.append(mean)
             
         avg_mean = np.mean(avg_means)
-        avg_std = np.std(avg_means, ddof=1)
         
-        if model == best_models["Average"]:
-            cell_contents[model]["Average"] = f"{avg_mean:.2f}({avg_std:.2f})*"
+        if model in best_models["Average"]:
+            cell_contents[model]["Average"] = f"{avg_mean:.2f}*"
         else:
-            cell_contents[model]["Average"] = f"{avg_mean:.2f}({avg_std:.2f})"
+            cell_contents[model]["Average"] = f"{avg_mean:.2f}"
     
     strategy_widths = {}
     for strategy in strategies + ["Average"]:
@@ -116,10 +117,11 @@ def generate_markdown_table(metric: str, models: List[str], strategies: List[str
         row += f" {avg_cell.center(strategy_widths['Average'])} |"
         rows.append(row)
     
-    footer = "\n*Best score in each column is marked with an asterisk (*)"
+    table = header + "\n" + separator + "\n" + "\n".join(rows)
     
-    table = header + "\n" + separator + "\n" + "\n".join(rows) + footer
-    return table
+    footer = "\n\nBest score in each column is marked with an asterisk (\\*)"
+    
+    return table + footer
 
 
 def main():
