@@ -1,0 +1,52 @@
+04/05/2025 11:17:24 - INFO - __main__ - ------NEW RUN-----
+04/05/2025 11:17:24 - INFO - __main__ - Training/evaluation parameters Namespace(dataset='Youtube', strategy='Evidence', seed=42, with_transcript=True, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=16, context_size=5, eval_batch_size=16, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, model_name='whisper-audio-and-text', data_dir='/dev/shm/data/whisper/Youtube', out_dir='/dev/shm/out/whisper-audio-and-text/Youtube/Evidence/42')
+04/05/2025 11:33:14 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.94      1.00      0.97      2274
+           1       0.95      0.19      0.32       190
+
+    accuracy                           0.94      2464
+   macro avg       0.94      0.60      0.65      2464
+weighted avg       0.94      0.94      0.92      2464
+
+04/05/2025 11:55:49 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.96      0.97      0.97      2274
+           1       0.59      0.53      0.56       190
+
+    accuracy                           0.94      2464
+   macro avg       0.78      0.75      0.76      2464
+weighted avg       0.93      0.94      0.93      2464
+
+04/05/2025 12:18:27 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.96      0.96      0.96      2274
+           1       0.54      0.55      0.55       190
+
+    accuracy                           0.93      2464
+   macro avg       0.75      0.76      0.76      2464
+weighted avg       0.93      0.93      0.93      2464
+
+04/05/2025 12:39:16 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.95      0.99      0.97      2274
+           1       0.71      0.43      0.54       190
+
+    accuracy                           0.94      2464
+   macro avg       0.83      0.71      0.75      2464
+weighted avg       0.93      0.94      0.94      2464
+
+04/05/2025 13:00:05 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.96      0.98      0.97      2274
+           1       0.67      0.50      0.57       190
+
+    accuracy                           0.94      2464
+   macro avg       0.82      0.74      0.77      2464
+weighted avg       0.94      0.94      0.94      2464
+

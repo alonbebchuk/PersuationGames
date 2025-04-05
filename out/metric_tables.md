@@ -1,23 +1,17 @@
 # Model Performance Tables
 
 ## F1 Scores
-|                   Class |  bert  | whisper-audio | whisper-audio-and-text |
-|-------------------------|--------|---------------|------------------------|
-| f1 Identity Declaration | 81.818 |        47.813 |                 85.057 |
-| f1 Accusation           | 67.071 |        43.802 |                 65.135 |
-| f1 Interrogation        | 90.364 |        59.660 |                 89.113 |
-| f1 Call for Action      | 79.061 |        50.633 |                 75.836 |
-| f1 Defense              | 42.266 |        36.181 |                 47.582 |
-| f1 Evidence             | 55.403 |        38.486 |                 57.471 |
-| f1 Average              | 69.331 |        46.096 |                 70.033 |
+| Model                  | Identity Declaration |  Accusation  | Interrogation | Call for Action |   Defense    |   Evidence   |    Average    |
+|------------------------|----------------------|--------------|---------------|-----------------|--------------|--------------|---------------|
+| bert                   |     81.66(1.87)      | 66.23(1.23)* |  90.23(0.57)* |   78.32(0.73)*  | 43.11(0.74)  | 56.79(1.27)  |  69.39(17.46) |
+| whisper-audio          |     50.75(2.57)      | 45.39(1.46)  |  59.34(0.64)  |   52.26(1.60)   | 36.17(2.04)  | 39.10(0.70)  |  47.17(8.67)  |
+| whisper-audio-and-text |     84.29(2.38)*     | 65.69(0.99)  |  89.62(0.50)  |   77.26(1.30)   | 46.67(2.22)* | 57.70(0.25)* | 70.20(16.47)* |
+*Best score in each column is marked with an asterisk (*)
 
 ## Accuracy Scores
-|                         Class |  bert  | whisper-audio | whisper-audio-and-text |
-|-------------------------------|--------|---------------|------------------------|
-| accuracy Identity Declaration | 97.656 |        95.028 |                 98.194 |
-| accuracy Accusation           | 89.397 |        84.889 |                 88.194 |
-| accuracy Interrogation        | 96.233 |        86.139 |                 95.806 |
-| accuracy Call for Action      | 96.763 |        93.500 |                 96.389 |
-| accuracy Defense              | 82.087 |        78.833 |                 84.944 |
-| accuracy Evidence             | 91.825 |        89.167 |                 92.806 |
-| accuracy Average              | 92.327 |        87.926 |                 92.722 |
+| Model                  | Identity Declaration |  Accusation  | Interrogation | Call for Action |   Defense    |   Evidence   |   Average    |
+|------------------------|----------------------|--------------|---------------|-----------------|--------------|--------------|--------------|
+| bert                   |     97.78(0.26)      | 89.52(0.86)* |  96.21(0.20)* |   96.65(0.17)*  | 82.01(0.07)  | 92.19(0.34)  | 92.39(5.96)* |
+| whisper-audio          |     94.97(0.07)      | 83.70(1.06)  |  85.54(0.54)  |   93.28(0.36)   | 80.85(2.78)  | 89.67(0.45)  | 88.00(5.57)  |
+| whisper-audio-and-text |     98.19(0.21)*     | 89.08(0.78)  |  95.96(0.20)  |   96.37(0.08)   | 82.15(5.16)* | 92.57(0.29)* | 92.39(5.97)  |
+*Best score in each column is marked with an asterisk (*)
