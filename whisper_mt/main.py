@@ -10,10 +10,10 @@ import os
 import random
 import wandb
 from datasets import Dataset
-from flax import jax_utils, struct, traverse_util
+from flax import jax_utils, linen as nn, struct, traverse_util
 from flax.training import train_state
-from flax.training.common_utils import onehot
-from load_dataset import load_dataset
+from jax.random import PRNGKey
+from load_dataset import load_dataset, STRATEGIES
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
@@ -23,6 +23,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Optional,
     Tuple,
 )
 
@@ -32,7 +33,6 @@ logger = log.getLogger(__name__)
 parser = argparse.ArgumentParser()
 # required
 parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
-parser.add_argument("--strategy", type=str, required=True, help="Name of strategy: Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
 parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
 parser.add_argument("--with_transcript", action="store_true", help="Whether to use transcript data")
 # optional
@@ -53,9 +53,9 @@ parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.model_name = "whisper-audio-and-text" if args.with_transcript else "whisper-audio"
+args.model_name = "whisper-mt-audio-and-text" if args.with_transcript else "whisper-mt-audio"
 args.data_dir = f"/dev/shm/data/{args.dataset}"
-args.out_dir = f"/dev/shm/out/{args.model_name}/{args.dataset}/{args.strategy}/{args.seed}"
+args.out_dir = f"/dev/shm/out/{args.model_name}/{args.dataset}/{args.seed}"
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -76,9 +76,45 @@ logger.addHandler(fh)
 
 SAMPLING_RATE = 16000
 MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
+NUM_LABELS = len(STRATEGIES)
 
-YES_TOKEN_ID = 6054
-NO_TOKEN_ID = 4540
+
+class MultiLabelWhisperModel(nn.Module):
+    base_model: FlaxWhisperForConditionalGeneration
+    num_labels: int
+    
+    @nn.compact
+    def __call__(
+        self,
+        input_features: jnp.ndarray,
+        decoder_input_ids: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
+        decoder_attention_mask: Optional[jnp.ndarray] = None,
+        train: bool = False,
+        params: dict = None,
+        dropout_rng: PRNGKey = None,
+    ):
+        outputs = self.base_model(
+            input_features=input_features,
+            attention_mask=attention_mask,
+            decoder_input_ids=decoder_input_ids,
+            decoder_attention_mask=decoder_attention_mask,
+            train=train,
+            params=params,
+            dropout_rng=dropout_rng,
+        )
+        
+        last_hidden_state = outputs.decoder_hidden_states[-1]
+        
+        last_token_hidden = last_hidden_state[:, -1, :]
+        
+        logits = nn.Dense(
+            features=self.num_labels,
+            kernel_init=nn.initializers.normal(0.02),
+            bias_init=nn.initializers.zeros,
+        )(last_token_hidden)
+        
+        return logits
 
 
 class AudioCollator:
@@ -113,7 +149,7 @@ class AudioCollator:
 
         decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
         decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
-        labels = np.empty(batch_size, dtype=np.int32)
+        labels = np.empty((batch_size, NUM_LABELS), dtype=np.int32)
         ids = []
 
         for i, sample in enumerate(batch):
@@ -150,12 +186,11 @@ class AudioCollator:
 
 
 class TrainState(train_state.TrainState):
-    logits_fn: Callable = struct.field(pytree_node=False)
     loss_fn: Callable = struct.field(pytree_node=False)
 
 
 def create_train_state(
-    model: FlaxWhisperForConditionalGeneration,
+    model: MultiLabelWhisperModel,
     learning_rate_fn: Callable[[int], float],
 ) -> TrainState:
     def decay_mask_fn(
@@ -181,29 +216,19 @@ def create_train_state(
         mask=decay_mask_fn,
     )
 
-    def logits_fn(logits: jnp.ndarray) -> jnp.ndarray:
-        completion_logits = logits[:, -1, :]
-
-        yes_logits = completion_logits[:, YES_TOKEN_ID]
-        no_logits = completion_logits[:, NO_TOKEN_ID]
-
-        yes_no_logits = jnp.stack([no_logits - yes_logits, yes_logits - no_logits], axis=1)
-
-        return yes_no_logits
-
-    def cross_entropy_loss(
+    def binary_cross_entropy_loss(
         logits: jnp.ndarray,
         labels: jnp.ndarray,
     ) -> jnp.ndarray:
-        xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
-        return jnp.mean(xentropy)
+        probs = jax.nn.sigmoid(logits)
+        bce = -(labels * jnp.log(probs + 1e-10) + (1 - labels) * jnp.log(1 - probs + 1e-10))
+        return jnp.mean(bce)
 
     return TrainState.create(
         apply_fn=model.__call__,
         params=model.params,
         tx=optimizer,
-        logits_fn=logits_fn,
-        loss_fn=cross_entropy_loss,
+        loss_fn=binary_cross_entropy_loss,
     )
 
 
@@ -244,7 +269,7 @@ def train_step(
     def loss_fn(
         params: Dict[str, Any],
     ) -> jnp.ndarray:
-        outputs = state.apply_fn(
+        logits = state.apply_fn(
             decoder_input_ids=batch["decoder_input_ids"],
             decoder_attention_mask=batch["decoder_attention_mask"],
             input_features=batch["input_features"],
@@ -253,7 +278,6 @@ def train_step(
             params=params,
             dropout_rng=dropout_rng,
         )
-        logits = state.logits_fn(outputs.logits)
         loss = state.loss_fn(logits, batch["labels"])
         return jax.lax.pmean(loss, axis_name="batch")
 
@@ -268,7 +292,7 @@ def eval_step(
     state: TrainState,
     batch: Dict[str, jnp.ndarray],
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    outputs = state.apply_fn(
+    logits = state.apply_fn(
         decoder_input_ids=batch["decoder_input_ids"],
         decoder_attention_mask=batch["decoder_attention_mask"],
         input_features=batch["input_features"],
@@ -276,11 +300,10 @@ def eval_step(
         train=False,
         params=state.params,
     )
-    logits = state.logits_fn(outputs.logits)
     loss = state.loss_fn(logits, batch["labels"])
     loss = jax.lax.pmean(loss, axis_name="batch")
-    pred = logits.argmax(-1)
-    return loss, pred, batch["labels"]
+    preds = (jax.nn.sigmoid(logits) > 0.5).astype(jnp.int32)
+    return loss, preds, batch["labels"]
 
 
 p_train_step = jax.pmap(
@@ -300,7 +323,7 @@ p_eval_step = jax.pmap(
 def train(
     tokenizer: WhisperTokenizer,
     feature_extractor: WhisperFeatureExtractor,
-    model: FlaxWhisperForConditionalGeneration,
+    model: MultiLabelWhisperModel,
 ) -> None:
     train_dataset = load_dataset(args, tokenizer, "train")
     val_dataset = load_dataset(args, tokenizer, "val")
@@ -311,7 +334,7 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"{args.model_name}-{args.dataset}-{args.strategy}-seed{args.seed}", tags=[args.model_name, args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"{args.model_name}-{args.dataset}-seed{args.seed}", tags=[args.model_name, args.dataset, f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
@@ -447,11 +470,11 @@ def evaluate(
             for k, v in batch.items()
         }
 
-        loss, pred, labels = p_eval_step(state, batch)
+        loss, preds, labels = p_eval_step(state, batch)
 
         running_loss += jnp.mean(loss).item()
-        all_preds.extend(jax.device_get(pred).reshape(-1))
-        all_labels.extend(jax.device_get(labels).reshape(-1))
+        all_preds.extend(jax.device_get(preds).reshape(-1, NUM_LABELS))
+        all_labels.extend(jax.device_get(labels).reshape(-1, NUM_LABELS))
         all_ids.extend(ids)
 
     eval_loss = running_loss / len(eval_dataloader)
@@ -459,20 +482,39 @@ def evaluate(
     all_labels = np.array(all_labels)
     all_ids = np.array(all_ids)
 
-    incorrect_mask = all_preds != all_labels
+    incorrect_mask = np.any(all_preds != all_labels, axis=1)
     incorrect_preds = all_preds[incorrect_mask].tolist()
     incorrect_ids = all_ids[incorrect_mask].tolist()
 
     results = {
         "loss": eval_loss,
-        "f1": f1_score(y_true=all_labels, y_pred=all_preds),
-        "precision": precision_score(y_true=all_labels, y_pred=all_preds),
-        "recall": recall_score(y_true=all_labels, y_pred=all_preds),
-        "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
-        "report": classification_report(y_true=all_labels, y_pred=all_preds),
+        "f1": f1_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "precision": precision_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "recall": recall_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "accuracy": accuracy_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "report": classification_report(y_true=all_labels.ravel(), y_pred=all_preds.ravel(), target_names=STRATEGIES),
         "preds": incorrect_preds,
         "ids": incorrect_ids,
     }
+
+    for i, strategy in enumerate(STRATEGIES):
+        strategy_preds = all_preds[:, i]
+        strategy_labels = all_labels[:, i]
+
+        strategy_incorrect_mask = strategy_preds != strategy_labels
+        strategy_incorrect_preds = strategy_preds[strategy_incorrect_mask].tolist()
+        strategy_incorrect_ids = all_ids[strategy_incorrect_mask].tolist()
+
+        results[strategy] = {
+            "f1": f1_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "precision": precision_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "recall": recall_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "accuracy": accuracy_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "report": classification_report(y_true=strategy_labels, y_pred=strategy_preds),
+            "preds": strategy_incorrect_preds,
+            "ids": strategy_incorrect_ids,
+        }
+
     return results
 
 
@@ -502,7 +544,7 @@ def main() -> None:
         model_name = "openai/whisper-medium"
         tokenizer = WhisperTokenizer.from_pretrained(model_name)
         feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
-        model = FlaxWhisperForConditionalGeneration.from_pretrained(model_name)
+        model = MultiLabelWhisperModel(FlaxWhisperForConditionalGeneration.from_pretrained(model_name), NUM_LABELS)
 
         train(tokenizer, feature_extractor, model)
     except Exception as e:

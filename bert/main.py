@@ -17,7 +17,7 @@ from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
-from transformers import BertTokenizer, FlaxBertForSequenceClassification
+from transformers import AutoTokenizer, FlaxAutoModelForSequenceClassification
 from typing import (
     Any,
     Callable,
@@ -31,6 +31,7 @@ logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 # required
+parser.add_argument("--model", type=str, required=True, help="Name of model, bert or roberta")
 parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--strategy", type=str, required=True, help="Name of strategy: Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
 parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
@@ -52,8 +53,8 @@ parser.add_argument("--warmup_steps", type=int, default=0, help="Linear warmup o
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.data_dir = f"/dev/shm/data/bert/{args.dataset}"
-args.out_dir = f"/dev/shm/out/bert/{args.dataset}/{args.strategy}/{args.seed}"
+args.data_dir = f"/dev/shm/data/{args.dataset}"
+args.out_dir = f"/dev/shm/out/{args.model}/{args.dataset}/{args.strategy}/{args.seed}"
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -78,7 +79,7 @@ class TrainState(train_state.TrainState):
 
 
 def create_train_state(
-    model: FlaxBertForSequenceClassification,
+    model: FlaxAutoModelForSequenceClassification,
     learning_rate_fn: Callable[[int], float],
 ) -> TrainState:
     def decay_mask_fn(
@@ -169,10 +170,10 @@ def train_step(
         params: Dict[str, Any],
     ) -> jnp.ndarray:
         outputs = state.apply_fn(
-            **{"params": params},
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             train=True,
+            params=params,
             dropout_rng=dropout_rng,
         )
         loss = state.loss_fn(outputs.logits, batch["labels"])
@@ -190,10 +191,10 @@ def eval_step(
     batch: Dict[str, jnp.ndarray],
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     outputs = state.apply_fn(
-        **{"params": state.params},
         input_ids=batch["input_ids"],
         attention_mask=batch["attention_mask"],
         train=False,
+        params=state.params,
     )
     logits = outputs.logits
     loss = state.loss_fn(logits, batch["labels"])
@@ -217,8 +218,8 @@ p_eval_step = jax.pmap(
 
 
 def train(
-    tokenizer: BertTokenizer,
-    model: FlaxBertForSequenceClassification,
+    tokenizer: AutoTokenizer,
+    model: FlaxAutoModelForSequenceClassification,
 ) -> None:
     train_dataset = load_dataset(args, tokenizer, "train")
     val_dataset = load_dataset(args, tokenizer, "val")
@@ -229,7 +230,7 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"bert-{args.dataset}-{args.strategy}-seed{args.seed}", tags=["bert", args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"{args.model}-{args.dataset}-{args.strategy}-seed{args.seed}", tags=[args.model, args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
@@ -410,9 +411,9 @@ def main() -> None:
 
         set_seeds()
 
-        model_name = "google-bert/bert-large-uncased"
-        tokenizer = BertTokenizer.from_pretrained(model_name)
-        model = FlaxBertForSequenceClassification.from_pretrained(model_name, num_labels=2)
+        model_name = "google-bert/bert-large-uncased" if args.model == "bert" else "FacebookAI/roberta-large"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = FlaxAutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
 
         train(tokenizer, model)
     except Exception as e:

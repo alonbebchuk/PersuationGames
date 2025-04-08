@@ -17,7 +17,7 @@ from load_dataset import load_dataset
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
-from transformers import FlaxWhisperForConditionalGeneration, WhisperFeatureExtractor, WhisperTokenizer
+from transformers import AutoTokenizer, FlaxAutoModelForSequenceClassification
 from typing import (
     Any,
     Callable,
@@ -31,31 +31,30 @@ logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 # required
+parser.add_argument("--model", type=str, required=True, help="Name of model, bert or roberta")
 parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
 parser.add_argument("--strategy", type=str, required=True, help="Name of strategy: Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
 parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
-parser.add_argument("--with_transcript", action="store_true", help="Whether to use transcript data")
 # optional
 parser.add_argument("--adam_b1", type=float, default=0.9, help="Adam b1")
-parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
+parser.add_argument("--adam_b2", type=float, default=0.999, help="Adam b2")
 parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
-parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
+parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
-parser.add_argument("--eval_batch_size", type=int, default=16, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", type=int, default=256, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", type=int, default=2, help="Evaluate every * epochs.")
-parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
+parser.add_argument("--learning_rate", type=float, default=3e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", type=int, default=40, help="Log every X updates steps.")
-parser.add_argument("--max_seq_length", type=int, default=448, help="The maximum sequence length for the model.")
+parser.add_argument("--max_seq_length", type=int, default=256, help="The maximum sequence length for the model.")
 parser.add_argument("--num_train_epochs", type=int, default=10, help="Total number of training epochs to perform.")
 parser.add_argument("--num_workers", type=int, default=min(8, mp.cpu_count()), help="Number of worker processes for data loading")
 parser.add_argument("--prefetch_factor", type=int, default=2, help="Number of batches to prefetch per worker")
-parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup over warmup_steps.")
+parser.add_argument("--warmup_steps", type=int, default=0, help="Linear warmup over warmup_steps.")
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.model_name = "whisper-audio-and-text" if args.with_transcript else "whisper-audio"
 args.data_dir = f"/dev/shm/data/{args.dataset}"
-args.out_dir = f"/dev/shm/out/{args.model_name}/{args.dataset}/{args.strategy}/{args.seed}"
+args.out_dir = f"/dev/shm/out/{args.model}/{args.dataset}/{args.strategy}/{args.seed}"
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -74,95 +73,22 @@ logger.addHandler(ch)
 logger.addHandler(fh)
 
 
-SAMPLING_RATE = 16000
-MAX_SAMPLE_LENGTH = SAMPLING_RATE * 30
-
-YES_TOKEN_ID = 6054
-NO_TOKEN_ID = 4540
-
-
-class AudioCollator:
-    def __init__(
-        self,
-        feature_extractor: WhisperFeatureExtractor,
-        batch_size: int,
-    ) -> None:
-        self.feature_extractor = feature_extractor
-        self.batch_size = batch_size
-        self.cache = {}
-
-    def load_cache(
-        self,
-        data_dir: str,
-        split: str
-    ) -> None:
-        with open(f"{data_dir}/{split}.json", "r") as f:
-            games = json.load(f)
-            for game in games:
-                audio_path = game["audio_path"]
-                if audio_path not in self.cache:
-                    audio_array = np.load(audio_path, mmap_mode="r")
-                    self.cache[audio_path] = {"array": audio_array, "length": len(audio_array)}
-
-    def __call__(
-        self,
-        batch: List[Dict[str, np.ndarray]],
-    ) -> Dict[str, np.ndarray]:
-        batch_size = len(batch)
-        audio_arrays = []
-
-        decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
-        decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
-        labels = np.empty(batch_size, dtype=np.int32)
-        ids = []
-
-        for i, sample in enumerate(batch):
-            audio_path = sample["audio_path"]
-            cached_data = self.cache[audio_path]
-
-            end_sample = cached_data["length"] if sample["end_sample"] == -1 else sample["end_sample"]
-            start_sample = max(end_sample - MAX_SAMPLE_LENGTH, sample["start_sample"])
-
-            audio_array = cached_data["array"][start_sample:end_sample]
-            audio_arrays.append(audio_array)
-
-            decoder_input_ids[i] = sample["decoder_input_ids"]
-            decoder_attention_mask[i] = sample["decoder_attention_mask"]
-            labels[i] = sample["labels"]
-            ids.append(sample["id"])
-
-        features = self.feature_extractor(
-            audio_arrays,
-            sampling_rate=SAMPLING_RATE,
-            return_attention_mask=True,
-            return_tensors="np",
-            padding="max_length",
-        )
-
-        return {
-            "decoder_input_ids": decoder_input_ids,
-            "decoder_attention_mask": decoder_attention_mask,
-            "input_features": features["input_features"],
-            "attention_mask": features["attention_mask"],
-            "labels": labels,
-            "id": ids,
-        }
+STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 
 class TrainState(train_state.TrainState):
-    logits_fn: Callable = struct.field(pytree_node=False)
     loss_fn: Callable = struct.field(pytree_node=False)
 
 
 def create_train_state(
-    model: FlaxWhisperForConditionalGeneration,
+    model: FlaxAutoModelForSequenceClassification,
     learning_rate_fn: Callable[[int], float],
 ) -> TrainState:
     def decay_mask_fn(
         params: Dict[str, Any],
     ) -> Dict[str, Any]:
         flat_params = traverse_util.flatten_dict(params)
-        layer_norm_candidates = ["layer_norm", "self_attn_layer_norm", "final_layer_norm", "encoder_attn_layer_norm"]
+        layer_norm_candidates = ["layernorm", "layer_norm", "ln"]
         layer_norm_named_params = {
             layer[-2:]
             for layer_norm_name in layer_norm_candidates
@@ -181,29 +107,19 @@ def create_train_state(
         mask=decay_mask_fn,
     )
 
-    def logits_fn(logits: jnp.ndarray) -> jnp.ndarray:
-        completion_logits = logits[:, -1, :]
-
-        yes_logits = completion_logits[:, YES_TOKEN_ID]
-        no_logits = completion_logits[:, NO_TOKEN_ID]
-
-        yes_no_logits = jnp.stack([no_logits - yes_logits, yes_logits - no_logits], axis=1)
-
-        return yes_no_logits
-
-    def cross_entropy_loss(
+    def binary_cross_entropy_loss(
         logits: jnp.ndarray,
         labels: jnp.ndarray,
     ) -> jnp.ndarray:
-        xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
-        return jnp.mean(xentropy)
+        probs = jax.nn.sigmoid(logits)
+        bce = -(labels * jnp.log(probs + 1e-10) + (1 - labels) * jnp.log(1 - probs + 1e-10))
+        return jnp.mean(bce)
 
     return TrainState.create(
         apply_fn=model.__call__,
         params=model.params,
         tx=optimizer,
-        logits_fn=logits_fn,
-        loss_fn=cross_entropy_loss,
+        loss_fn=binary_cross_entropy_loss,
     )
 
 
@@ -221,11 +137,22 @@ def create_learning_rate_fn(
     return schedule_fn
 
 
+def collate_fn(
+    batch: List[Dict[str, np.ndarray]],
+) -> Dict[str, np.ndarray]:
+    return {
+        "input_ids": np.array([sample["input_ids"] for sample in batch]),
+        "attention_mask": np.array([sample["attention_mask"] for sample in batch]),
+        "labels": np.array([sample["labels"] for sample in batch]),
+        "id": [sample["id"] for sample in batch],
+    }
+
+
 def get_adjusted_batch_size(
     original_batch_size: int,
     n_devices: int,
 ) -> int:
-    min_batch_size = n_devices
+    min_batch_size = n_devices * 2
     global_batch_size = max(original_batch_size, min_batch_size)
 
     per_device_batch_size = global_batch_size // n_devices
@@ -245,16 +172,13 @@ def train_step(
         params: Dict[str, Any],
     ) -> jnp.ndarray:
         outputs = state.apply_fn(
-            decoder_input_ids=batch["decoder_input_ids"],
-            decoder_attention_mask=batch["decoder_attention_mask"],
-            input_features=batch["input_features"],
+            input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             train=True,
             params=params,
             dropout_rng=dropout_rng,
         )
-        logits = state.logits_fn(outputs.logits)
-        loss = state.loss_fn(logits, batch["labels"])
+        loss = state.loss_fn(outputs.logits, batch["labels"])
         return jax.lax.pmean(loss, axis_name="batch")
 
     grad_fn = jax.value_and_grad(loss_fn)
@@ -269,18 +193,16 @@ def eval_step(
     batch: Dict[str, jnp.ndarray],
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     outputs = state.apply_fn(
-        decoder_input_ids=batch["decoder_input_ids"],
-        decoder_attention_mask=batch["decoder_attention_mask"],
-        input_features=batch["input_features"],
+        input_ids=batch["input_ids"],
         attention_mask=batch["attention_mask"],
         train=False,
         params=state.params,
     )
-    logits = state.logits_fn(outputs.logits)
+    logits = outputs.logits
     loss = state.loss_fn(logits, batch["labels"])
     loss = jax.lax.pmean(loss, axis_name="batch")
-    pred = logits.argmax(-1)
-    return loss, pred, batch["labels"]
+    preds = (jax.nn.sigmoid(logits) > 0.5).astype(jnp.int32)
+    return loss, preds, batch["labels"]
 
 
 p_train_step = jax.pmap(
@@ -298,9 +220,8 @@ p_eval_step = jax.pmap(
 
 
 def train(
-    tokenizer: WhisperTokenizer,
-    feature_extractor: WhisperFeatureExtractor,
-    model: FlaxWhisperForConditionalGeneration,
+    tokenizer: AutoTokenizer,
+    model: FlaxAutoModelForSequenceClassification,
 ) -> None:
     train_dataset = load_dataset(args, tokenizer, "train")
     val_dataset = load_dataset(args, tokenizer, "val")
@@ -311,13 +232,10 @@ def train(
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"{args.model_name}-{args.dataset}-{args.strategy}-seed{args.seed}", tags=[args.model_name, args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"{args.model}-{args.dataset}-{args.strategy}-seed{args.seed}", tags=[args.model, args.dataset, args.strategy, f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
-
-    audio_collator = AudioCollator(feature_extractor, global_batch_size)
-    audio_collator.load_cache(args.data_dir, "train")
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -327,7 +245,7 @@ def train(
         pin_memory=True,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
-        collate_fn=audio_collator,
+        collate_fn=collate_fn,
         drop_last=True,
     )
 
@@ -386,7 +304,7 @@ def train(
                 logging_loss = tr_loss
 
         if epoch % args.evaluate_period == 0:
-            results_val = evaluate(feature_extractor, state, val_dataset, "val")
+            results_val = evaluate(state, val_dataset)
             if worker_id == 0:
                 wandb.log({f"eval_{key}": value for key, value in results_val.items() if key not in ["report", "preds", "ids"]})
             logging_loss = tr_loss
@@ -395,7 +313,7 @@ def train(
             if results_val["f1"] >= best_f1:
                 best_f1 = results_val["f1"]
 
-                results_test = evaluate(feature_extractor, state, test_dataset, "test")
+                results_test = evaluate(state, test_dataset)
                 write_json_file(results_val, f"{args.out_dir}/results_val.json")
                 write_json_file(results_test, f"{args.out_dir}/results_test.json")
 
@@ -404,17 +322,13 @@ def train(
 
 
 def evaluate(
-    feature_extractor: WhisperFeatureExtractor,
     state: TrainState,
     eval_dataset: Dataset,
-    mode: str,
 ) -> Dict[str, Any]:
     devices = jax.local_devices()
     n_devices = len(devices)
 
     global_eval_batch_size = get_adjusted_batch_size(args.eval_batch_size, n_devices)
-    audio_collator = AudioCollator(feature_extractor, global_eval_batch_size)
-    audio_collator.load_cache(args.data_dir, mode)
 
     eval_dataloader = DataLoader(
         eval_dataset,
@@ -424,7 +338,7 @@ def evaluate(
         pin_memory=True,
         persistent_workers=True if args.num_workers > 0 else False,
         prefetch_factor=args.prefetch_factor,
-        collate_fn=audio_collator,
+        collate_fn=collate_fn,
         drop_last=True,
     )
 
@@ -447,10 +361,10 @@ def evaluate(
             for k, v in batch.items()
         }
 
-        loss, pred, labels = p_eval_step(state, batch)
+        loss, preds, labels = p_eval_step(state, batch)
 
         running_loss += jnp.mean(loss).item()
-        all_preds.extend(jax.device_get(pred).reshape(-1))
+        all_preds.extend(jax.device_get(preds).reshape(-1))
         all_labels.extend(jax.device_get(labels).reshape(-1))
         all_ids.extend(ids)
 
@@ -459,20 +373,39 @@ def evaluate(
     all_labels = np.array(all_labels)
     all_ids = np.array(all_ids)
 
-    incorrect_mask = all_preds != all_labels
+    incorrect_mask = np.any(all_preds != all_labels, axis=1)
     incorrect_preds = all_preds[incorrect_mask].tolist()
     incorrect_ids = all_ids[incorrect_mask].tolist()
 
     results = {
         "loss": eval_loss,
-        "f1": f1_score(y_true=all_labels, y_pred=all_preds),
-        "precision": precision_score(y_true=all_labels, y_pred=all_preds),
-        "recall": recall_score(y_true=all_labels, y_pred=all_preds),
-        "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
-        "report": classification_report(y_true=all_labels, y_pred=all_preds),
+        "f1": f1_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "precision": precision_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "recall": recall_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "accuracy": accuracy_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
+        "report": classification_report(y_true=all_labels.ravel(), y_pred=all_preds.ravel(), target_names=STRATEGIES),
         "preds": incorrect_preds,
         "ids": incorrect_ids,
     }
+
+    for i, strategy in enumerate(STRATEGIES):
+        strategy_preds = all_preds[:, i]
+        strategy_labels = all_labels[:, i]
+
+        strategy_incorrect_mask = strategy_preds != strategy_labels
+        strategy_incorrect_preds = strategy_preds[strategy_incorrect_mask].tolist()
+        strategy_incorrect_ids = all_ids[strategy_incorrect_mask].tolist()
+
+        results[strategy] = {
+            "f1": f1_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "precision": precision_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "recall": recall_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "accuracy": accuracy_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "report": classification_report(y_true=strategy_labels, y_pred=strategy_preds),
+            "preds": strategy_incorrect_preds,
+            "ids": strategy_incorrect_ids,
+        }
+
     return results
 
 
@@ -499,12 +432,11 @@ def main() -> None:
 
         set_seeds()
 
-        model_name = "openai/whisper-medium"
-        tokenizer = WhisperTokenizer.from_pretrained(model_name)
-        feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
-        model = FlaxWhisperForConditionalGeneration.from_pretrained(model_name)
+        model_name = "google-bert/bert-large-uncased" if args.model == "bert-mt" else "FacebookAI/roberta-large"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = FlaxAutoModelForSequenceClassification.from_pretrained(model_name, problem_type="single_label_classification", num_labels=len(STRATEGIES))
 
-        train(tokenizer, feature_extractor, model)
+        train(tokenizer, model)
     except Exception as e:
         logger.error(f"Script failed with error: {str(e)}", exc_info=True)
         raise e

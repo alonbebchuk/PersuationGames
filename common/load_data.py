@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, required=True, help="Name of dataset, Ego4D or Youtube")
 args = parser.parse_args()
 
-args.data_dir = f"/dev/shm/data/whisper/{args.dataset}"
+args.data_dir = f"/dev/shm/data/{args.dataset}"
 
 os.makedirs(args.data_dir, exist_ok=True)
 
@@ -98,4 +98,4 @@ def load_data(
 if __name__ == "__main__":
     load_data(args, "train")
     load_data(args, "val")
-    load_data(args, "test")
+    load_data(args, "test") 
