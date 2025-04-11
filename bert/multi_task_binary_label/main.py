@@ -256,8 +256,8 @@ def train(tokenizer: BertTokenizer, model: FlaxBertForSequenceClassification) ->
         if epoch % args.evaluate_period == 0:
             results_val = evaluate(state, val_dataset)
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key not in ["report", "preds", "ids"] and key not in STRATEGIES})
-                wandb.log({f"eval_{strategy}_{key}": value for strategy in STRATEGIES for key, value in results_val[strategy].items()})
+                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key != "report" and key not in STRATEGIES})
+                wandb.log({f"eval_{strategy}_{key}": value for strategy in STRATEGIES for key, value in results_val[strategy].items() if key != "report"})
             logging_loss = tr_loss
             logger.info(f"\n{results_val['report']}")
 
@@ -293,9 +293,10 @@ def evaluate(state: TrainState, eval_dataset: Dataset) -> Dict[str, Any]:
     running_loss = 0.0
     all_preds = []
     all_labels = []
+    all_strategies = []
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         _ = batch.pop("id")
-        _ = batch.pop("strategy")
+        strategy = batch.pop("strategy")
         per_device_batch_size = global_eval_batch_size // n_devices
         batch = {
             k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
@@ -312,10 +313,12 @@ def evaluate(state: TrainState, eval_dataset: Dataset) -> Dict[str, Any]:
         running_loss += jnp.mean(loss).item()
         all_preds.extend(jax.device_get(pred).reshape(-1))
         all_labels.extend(jax.device_get(labels).reshape(-1))
+        all_strategies.extend(strategy)
 
     eval_loss = running_loss / len(eval_dataloader)
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
+    all_strategies = np.array(all_strategies)
 
     results = {
         "loss": eval_loss,

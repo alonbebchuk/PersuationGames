@@ -13,7 +13,7 @@ import wandb
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from bert.multi_task_multi_label.load_dataset import load_dataset
+from bert.multi_task_multi_label.load_dataset import load_dataset, STRATEGIES
 from datasets import Dataset
 from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
@@ -22,9 +22,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 from transformers import BertTokenizer, FlaxBertForSequenceClassification
 from typing import Any, Callable, Dict, List, Tuple
-
-
-STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
 
 
 logger = log.getLogger(__name__)
@@ -256,8 +253,8 @@ def train(tokenizer: BertTokenizer, model: FlaxBertForSequenceClassification) ->
         if epoch % args.evaluate_period == 0:
             results_val = evaluate(state, val_dataset)
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key not in ["report", "preds", "ids"] and key not in STRATEGIES})
-                wandb.log({f"eval_{strategy}_{key}": value for strategy in STRATEGIES for key, value in results_val[strategy].items()})
+                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key != "report" and key not in STRATEGIES})
+                wandb.log({f"eval_{strategy}_{key}": value for strategy in STRATEGIES for key, value in results_val[strategy].items() if key != "report"})
             logging_loss = tr_loss
             logger.info(f"\n{results_val['report']}")
 

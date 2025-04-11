@@ -7,6 +7,9 @@ from transformers import BertTokenizer
 from typing import Any, List, Tuple
 
 
+STRATEGIES = ["Identity Declaration", "Accusation", "Interrogation", "Call for Action", "Defense", "Evidence"]
+
+
 def tokens_to_input_ids_and_attention_mask(tokens: List[str], max_seq_length: int, tokenizer: BertTokenizer) -> Tuple[List[int], List[int]]:
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
     input_mask = [1] * len(input_ids)
