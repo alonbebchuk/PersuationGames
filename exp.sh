@@ -13,7 +13,6 @@ do
     python3.10 bert/single_task/main.py --strategy ${strategy} --seed ${seed}
     python3.10 whisper/single_task/main_v1.py --strategy ${strategy} --seed ${seed}
     python3.10 whisper/single_task/main_v2.py --strategy ${strategy} --seed ${seed}
-    break
   done
 
   python3.10 bert/multi_task_binary_label/main.py --seed ${seed}
@@ -21,5 +20,4 @@ do
   python3.10 whisper/multi_task_binary_label/main_v2.py --seed ${seed}
   python3.10 bert/multi_task_multi_label/main.py --seed ${seed}
   python3.10 whisper/multi_task_multi_label/main.py --seed ${seed}
-  break
 done
