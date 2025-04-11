@@ -16,6 +16,7 @@ class FlaxWhisperForSequenceClassificationModule(nn.Module):
             config=self.config, dtype=self.dtype, gradient_checkpointing=self.gradient_checkpointing
         )
         self.dropout = nn.Dropout(rate=0.1)
+        self.projector = nn.Dense(self.config.d_model, dtype=self.dtype)
         self.classifier = nn.Dense(
             self.config.num_labels,
             dtype=self.dtype,
@@ -54,8 +55,8 @@ class FlaxWhisperForSequenceClassificationModule(nn.Module):
         # Get the encoder's last hidden state for classification
         encoder_last_hidden_state = outputs.encoder_last_hidden_state if return_dict else outputs[0]
         
-        # Use the mean of the last hidden state as the pooled output
-        pooled_output = jnp.mean(encoder_last_hidden_state, axis=1)
+        # Use the last token of the last hidden state as the pooled output
+        pooled_output = self.projector(encoder_last_hidden_state[:,-1,:])
         
         # Apply dropout
         pooled_output = self.dropout(pooled_output, deterministic=deterministic)

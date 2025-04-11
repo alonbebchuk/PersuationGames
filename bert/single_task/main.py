@@ -11,7 +11,8 @@ import random
 import sys
 import wandb
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(ROOT_DIR)
 
 from bert.single_task.load_dataset import load_dataset
 from datasets import Dataset
@@ -49,7 +50,7 @@ parser.add_argument("--warmup_steps", type=int, default=0, help="Linear warmup o
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.out_dir = f"/dev/shm/out/bert/single_task/{args.strategy}/{args.seed}"
+args.out_dir = os.path.join(ROOT_DIR, f"out/bert/single_task/{args.strategy}/{args.seed}")
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -252,7 +253,7 @@ def train(tokenizer: BertTokenizer, model: FlaxBertForSequenceClassification) ->
                     wandb.log({"loss": (tr_loss - logging_loss) / args.logging_steps, "lr": current_lr})
                 logging_loss = tr_loss
 
-        if epoch % args.evaluate_period == 0:
+        if (epoch + 1) % args.evaluate_period == 0:
             results_val = evaluate(state, val_dataset)
             if worker_id == 0:
                 wandb.log({f"eval_{key}": value for key, value in results_val.items() if key not in ["report", "preds", "ids"]})

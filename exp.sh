@@ -1,21 +1,25 @@
 #!/bin/bash
 
-export PYTHONPATH=$PYTHONPATH:$(pwd)
-
-# python3.10 scripts/load_data.py
+python3.10 bert/load_data.py
+python3.10 whisper/load_data.py
 
 seeds=(12 42 87)
-strategies=("Accusation" "Call for Action" "Defense" "Evidence" "Identity Declaration" "Interrogation")
+strategies=("Identity Declaration" "Accusation" "Interrogation" "Call for Action" "Defense" "Evidence")
 
 for seed in "${seeds[@]}"
 do
-  python3.10 scripts/bert.py --seed ${seed}
-  # python3.10 scripts/whisper.py --seed ${seed}
   for strategy in "${strategies[@]}"
   do
-    python3.10 scripts/bert.py --seed ${seed} --strategy ${strategy}
-    # python3.10 scripts/whisper_mt.py --seed ${seed} --strategy ${strategy}
+    python3.10 bert/single_task/main.py --strategy ${strategy} --seed ${seed}
+    python3.10 whisper/single_task/main_v1.py --strategy ${strategy} --seed ${seed}
+    python3.10 whisper/single_task/main_v2.py --strategy ${strategy} --seed ${seed}
+    break
   done
-done
 
-cp -r /dev/shm/out ./
+  python3.10 bert/multi_task_binary_label/main.py --seed ${seed}
+  python3.10 whisper/multi_task_binary_label/main_v1.py --seed ${seed}
+  python3.10 whisper/multi_task_binary_label/main_v2.py --seed ${seed}
+  python3.10 bert/multi_task_multi_label/main.py --seed ${seed}
+  python3.10 whisper/multi_task_multi_label/main.py --seed ${seed}
+  break
+done
