@@ -368,6 +368,7 @@ def main() -> None:
         train(tokenizer, model)
     except Exception as e:
         logger.error(f"Script failed with error: {str(e)}", exc_info=True)
+        wandb.finish(exit_code=1)
         raise e
 
 
