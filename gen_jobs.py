@@ -145,6 +145,9 @@ def main(mode):
         file_path = f"{folder}/{wandb_name}.sh"     
         if wandb_name in good_runs:
             continue
+        
+        if wandb_name!="_t=Defense_nc=2_tp=True_s=small_ty=whisper":
+            continue
         exp_name = f"export WANDB_NAME='{wandb_name}'"   
         
         task_list.append(task)
