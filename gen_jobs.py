@@ -79,18 +79,18 @@ command_lookup = {
 
 from sklearn.utils import Bunch
 with dag.DAG() as experiment:
- 
+        model_type(
+        "whisper",
+        "bert",
+        )>> \
      model_size(
         "small",
         # "medium"
         ) >> \
-        task_type("multitask", "Accusation", "Call for Action", "Defense", "Evidence", "Identity Declaration", "Interrogation") >> \
         train_projector(True, False) >>\
-            num_classes(2, 6) >> \
-        model_type(
-        "whisper"
-        "bert",
-        )
+        task_type("multitask", "Accusation", "Call for Action", "Defense", "Evidence", "Identity Declaration", "Interrogation") >> \
+            num_classes(2, 6)
+        
     # batch_size(512) >> lr(0.0006)
 task_list = []
 import numpy as np
