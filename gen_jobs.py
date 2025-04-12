@@ -126,9 +126,10 @@ def main(mode):
             folder = f"gs://meliad2_us2_backup/scripts/{formatted_date}"
         
         task_name = task.task_type.replace(' ','_')
-        wandb_name = f"{task.model_type}_{task.model_size}_{task_name}_{task.num_classes}_{task.train_projector}"
+        wandb_name = f"_t={task_name}_nc={task.num_classes}_tp={task.train_projector}_s={task.model_size}_ty={task.model_type}"
         exp_count_str = f"export WANDB_TAGS=model_type-{task.model_type},model_size-{task.model_size},task_type-{task_name},num_classes-{task.num_classes},train_projector-{task.train_projector}"
-        file_path = f"{folder}/{wandb_name}.sh"        
+        file_path = f"{folder}/{wandb_name}.sh"     
+        exp_name = f"export WANDB_NAME='{wandb_name}'"   
         
         task_list.append(task)
         
@@ -138,7 +139,7 @@ def main(mode):
         # print(iden)
         command = command_lookup[iden].format(strategy=task.task_type, seed=30)
         # print(f"Running: {command}")
-        cmds = [preramble, exp_count_str, command]
+        cmds = [preramble, exp_count_str,exp_name, command]
         script = concat_into_script(cmds)
         
         
