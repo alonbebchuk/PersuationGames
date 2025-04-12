@@ -1,6 +1,5 @@
 import wandb
 import os
-
 if not os.path.exists("/tmp/wandb_lock"):
     wandb.init(project="werewolf")
     with open("/tmp/wandb_lock", "w") as f:
