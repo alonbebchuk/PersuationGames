@@ -344,6 +344,8 @@ def evaluate(state: TrainState, eval_dataset: Dataset) -> Dict[str, Any]:
 def write_json_file(data: Dict[str, Any], filepath: str) -> None:
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
+    wandb.save(filepath)
+
 
 
 def set_seeds() -> None:

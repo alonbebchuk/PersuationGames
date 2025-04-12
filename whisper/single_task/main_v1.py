@@ -44,7 +44,7 @@ parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
 parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
 parser.add_argument("--context_size", type=int, default=5, help="Size of the context")
-parser.add_argument("--eval_batch_size", type=int, default=256, help="Batch size for evaluation.")
+parser.add_argument("--eval_batch_size", type=int, default=128, help="Batch size for evaluation.")
 parser.add_argument("--evaluate_period", type=int, default=2, help="Evaluate every * epochs.")
 parser.add_argument("--learning_rate", type=float, default=1e-5, help="The initial learning rate for Adam.")
 parser.add_argument("--logging_steps", type=int, default=40, help="Log every X updates steps.")
@@ -399,6 +399,8 @@ def evaluate(feature_extractor: WhisperFeatureExtractor, state: TrainState, eval
 def write_json_file(data: Dict[str, Any], filepath: str) -> None:
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
+    wandb.save(filepath)
+
 
 
 def set_seeds() -> None:
