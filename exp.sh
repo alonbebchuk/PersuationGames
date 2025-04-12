@@ -10,9 +10,9 @@ for seed in "${seeds[@]}"
 do
   for strategy in "${strategies[@]}"
   do
-    python3.10 bert/single_task/main.py --strategy ${strategy} --seed ${seed}
-    python3.10 whisper/single_task/main_v1.py --strategy ${strategy} --seed ${seed}
-    python3.10 whisper/single_task/main_v2.py --strategy ${strategy} --seed ${seed}
+    python3.10 bert/single_task/main.py --strategy="${strategy}" --seed ${seed}
+    python3.10 whisper/single_task/main_v1.py --strategy="${strategy}" --seed ${seed}
+    python3.10 whisper/single_task/main_v2.py --strategy="${strategy}" --seed ${seed}
   done
 
   python3.10 bert/multi_task_binary_label/main.py --seed ${seed}

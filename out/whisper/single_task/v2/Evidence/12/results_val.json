@@ -1,0 +1,8 @@
+{
+  "loss": 0.41609210934903884,
+  "f1": 0.25892857142857145,
+  "precision": 0.6444444444444445,
+  "recall": 0.16201117318435754,
+  "accuracy": 0.9279513888888888,
+  "report": "              precision    recall  f1-score   support\n\n           0       0.93      0.99      0.96      2125\n           1       0.64      0.16      0.26       179\n\n    accuracy                           0.93      2304\n   macro avg       0.79      0.58      0.61      2304\nweighted avg       0.91      0.93      0.91      2304\n"
+}

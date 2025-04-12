@@ -1,0 +1,50 @@
+{
+  "loss": 0.19056427720607372,
+  "f1": 0.6807268007787152,
+  "precision": 0.6892247043363995,
+  "recall": 0.6724358974358975,
+  "accuracy": 0.9325657894736842,
+  "report": "              precision    recall  f1-score   support\n\n           0       0.96      0.96      0.96     13032\n           1       0.69      0.67      0.68      1560\n\n    accuracy                           0.93     14592\n   macro avg       0.83      0.82      0.82     14592\nweighted avg       0.93      0.93      0.93     14592\n",
+  "Identity Declaration": {
+    "f1": 0.8494208494208494,
+    "precision": 0.8396946564885496,
+    "recall": 0.859375,
+    "accuracy": 0.9839638157894737,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.99      0.99      0.99      2304\n           1       0.84      0.86      0.85       128\n\n    accuracy                           0.98      2432\n   macro avg       0.92      0.93      0.92      2432\nweighted avg       0.98      0.98      0.98      2432\n"
+  },
+  "Accusation": {
+    "f1": 0.7066492829204694,
+    "precision": 0.6707920792079208,
+    "recall": 0.7465564738292011,
+    "accuracy": 0.907483552631579,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.95      0.94      0.95      2069\n           1       0.67      0.75      0.71       363\n\n    accuracy                           0.91      2432\n   macro avg       0.81      0.84      0.83      2432\nweighted avg       0.91      0.91      0.91      2432\n"
+  },
+  "Interrogation": {
+    "f1": 0.8784313725490196,
+    "precision": 0.8682170542635659,
+    "recall": 0.8888888888888888,
+    "accuracy": 0.9617598684210527,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.98      0.98      0.98      2054\n           1       0.87      0.89      0.88       378\n\n    accuracy                           0.96      2432\n   macro avg       0.92      0.93      0.93      2432\nweighted avg       0.96      0.96      0.96      2432\n"
+  },
+  "Call for Action": {
+    "f1": 0.6209677419354839,
+    "precision": 0.616,
+    "recall": 0.6260162601626016,
+    "accuracy": 0.9613486842105263,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.98      0.98      0.98      2309\n           1       0.62      0.63      0.62       123\n\n    accuracy                           0.96      2432\n   macro avg       0.80      0.80      0.80      2432\nweighted avg       0.96      0.96      0.96      2432\n"
+  },
+  "Defense": {
+    "f1": 0.45879120879120877,
+    "precision": 0.48546511627906974,
+    "recall": 0.4348958333333333,
+    "accuracy": 0.8379934210526315,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.90      0.91      0.90      2048\n           1       0.49      0.43      0.46       384\n\n    accuracy                           0.84      2432\n   macro avg       0.69      0.67      0.68      2432\nweighted avg       0.83      0.84      0.83      2432\n"
+  },
+  "Evidence": {
+    "f1": 0.5587301587301587,
+    "precision": 0.6717557251908397,
+    "recall": 0.4782608695652174,
+    "accuracy": 0.9428453947368421,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.96      0.98      0.97      2248\n           1       0.67      0.48      0.56       184\n\n    accuracy                           0.94      2432\n   macro avg       0.82      0.73      0.76      2432\nweighted avg       0.94      0.94      0.94      2432\n"
+  }
+}
