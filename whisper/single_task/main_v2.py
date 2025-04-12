@@ -1,5 +1,11 @@
 import wandb
-wandb.init(project="werewolf")
+import os
+
+if not os.path.exists("/tmp/wandb_lock"):
+    wandb.init(project="werewolf")
+    with open("/tmp/wandb_lock", "w") as f:
+        f.write("1")
+
 import argparse
 import jax
 import jax.numpy as jnp

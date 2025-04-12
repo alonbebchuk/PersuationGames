@@ -104,6 +104,8 @@ def concat_into_script(cmds, **kwargs):
 now = datetime.datetime.now()
 formatted_date = now.strftime("%d_%m_%Y")
 
+
+post_proc = """sleep 10; rm /tmp/wandb_lock"""
 def main(mode):
     for task in experiment.tasks:
         task = task.as_bunch()
@@ -139,7 +141,7 @@ def main(mode):
         # print(iden)
         command = command_lookup[iden].format(strategy=task.task_type, seed=30)
         # print(f"Running: {command}")
-        cmds = [preramble, exp_count_str,exp_name, command]
+        cmds = [preramble, exp_count_str,exp_name, command, post_proc]
         script = concat_into_script(cmds)
         
         
