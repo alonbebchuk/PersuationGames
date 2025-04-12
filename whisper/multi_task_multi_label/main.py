@@ -248,7 +248,6 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
     n_devices = len(devices)
 
     worker_id = jax.process_index()
-    if worker_id == 0:
         
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)

@@ -81,7 +81,7 @@ from sklearn.utils import Bunch
 with dag.DAG() as experiment:
         model_type(
         "whisper",
-        "bert",
+        # "bert",
         )>> \
      model_size(
         "small",
