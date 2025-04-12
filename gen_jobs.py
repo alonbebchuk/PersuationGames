@@ -80,8 +80,8 @@ command_lookup = {
 from sklearn.utils import Bunch
 with dag.DAG() as experiment:
         model_type(
-        "whisper",
-        # "bert",
+        # "whisper",
+        "bert",
         )>> \
      model_size(
         "small",
