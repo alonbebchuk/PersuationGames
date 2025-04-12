@@ -106,6 +106,16 @@ def concat_into_script(cmds, **kwargs):
 now = datetime.datetime.now()
 formatted_date = now.strftime("%d_%m_%Y")
 
+good_runs = ['_t=Defense_nc=2_tp=True_s=small_ty=whisper',
+ '_t=Accusation_nc=2_tp=True_s=small_ty=whisper',
+ '_t=Call_for_Action_nc=2_tp=True_s=small_ty=whisper',
+ '_t=Evidence_nc=2_tp=True_s=small_ty=whisper',
+ '_t=Identity_Declaration_nc=2_tp=True_s=small_ty=whisper',
+ '_t=Interrogation_nc=2_tp=True_s=small_ty=whisper',
+ '_t=Accusation_nc=2_tp=False_s=small_ty=whisper',
+ '_t=Call_for_Action_nc=2_tp=False_s=small_ty=whisper',
+ '_t=Defense_nc=2_tp=False_s=small_ty=whisper',
+ '_t=Evidence_nc=2_tp=False_s=small_ty=whisper']
 
 post_proc = """sleep 10; rm /tmp/wandb_lock"""
 def main(mode):
@@ -133,6 +143,8 @@ def main(mode):
         wandb_name = f"_t={task_name}_nc={task.num_classes}_tp={task.train_projector}_s={task.model_size}_ty={task.model_type}"
         exp_count_str = f"export WANDB_TAGS=model_type-{task.model_type},model_size-{task.model_size},task_type-{task_name},num_classes-{task.num_classes},train_projector-{task.train_projector}"
         file_path = f"{folder}/{wandb_name}.sh"     
+        if wandb_name in good_runs:
+            continue
         exp_name = f"export WANDB_NAME='{wandb_name}'"   
         
         task_list.append(task)
