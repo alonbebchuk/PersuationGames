@@ -377,7 +377,10 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Script failed with error: {str(e)}", exc_info=True)
         raise e
+        
 
 
 if __name__ == "__main__":
     main()
+    wandb.finish()
+    wandb.finish()
