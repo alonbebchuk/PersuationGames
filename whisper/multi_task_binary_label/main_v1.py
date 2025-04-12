@@ -322,7 +322,7 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
         if (epoch + 1) % args.evaluate_period == 0:
             results_val = evaluate(feature_extractor, state, val_dataset, "val")
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key != "report"})
+                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key != "report" and key not in STRATEGIES})
                 wandb.log({f"eval_{strategy}_{key}": value for strategy in STRATEGIES for key, value in results_val[strategy].items() if key != "report"})
             logging_loss = tr_loss
             logger.info(f"\n{results_val['report']}")
