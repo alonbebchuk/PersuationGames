@@ -80,15 +80,17 @@ command_lookup = {
 from sklearn.utils import Bunch
 with dag.DAG() as experiment:
  
-    model_type(
-        # "bert",
-        "whisper") >> model_size(
+     model_size(
         "small",
         # "medium"
         ) >> \
         task_type("multitask", "Accusation", "Call for Action", "Defense", "Evidence", "Identity Declaration", "Interrogation") >> \
         train_projector(True, False) >>\
-            num_classes(2, 6)
+            num_classes(2, 6) >> \
+        model_type(
+        "whisper"
+        "bert",
+        )
     # batch_size(512) >> lr(0.0006)
 task_list = []
 import numpy as np
@@ -136,11 +138,7 @@ def main(mode):
         task_list.append(task)
         
         iden = (task.model_type, task_type, task.train_projector, task.num_classes)
-        print(iden)
-        # iden = (task.model_type, task_name, task.train_projector, task.num_classes)
-        # print(iden)
         command = command_lookup[iden].format(strategy=task.task_type, seed=30)
-        # print(f"Running: {command}")
         cmds = [preramble, exp_count_str,exp_name, command, post_proc]
         script = concat_into_script(cmds)
         
