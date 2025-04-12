@@ -143,11 +143,11 @@ def main(mode):
         wandb_name = f"_t={task_name}_nc={task.num_classes}_tp={task.train_projector}_s={task.model_size}_ty={task.model_type}"
         exp_count_str = f"export WANDB_TAGS=model_type-{task.model_type},model_size-{task.model_size},task_type-{task_name},num_classes-{task.num_classes},train_projector-{task.train_projector}"
         file_path = f"{folder}/{wandb_name}.sh"     
-        if wandb_name in good_runs:
-            continue
+        # if wandb_name in good_runs:
+        #     continue
         
-        if wandb_name!="_t=Defense_nc=2_tp=True_s=small_ty=whisper":
-            continue
+        # if wandb_name!="_t=Defense_nc=2_tp=True_s=small_ty=whisper":
+        #     continue
         exp_name = f"export WANDB_NAME='{wandb_name}'"   
         
         task_list.append(task)
