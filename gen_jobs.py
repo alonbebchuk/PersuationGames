@@ -125,13 +125,18 @@ def main(mode):
         else:
             folder = f"gs://meliad2_us2_backup/scripts/{formatted_date}"
         
-        task_type = task.task_type.replace(' ','_')
-        wandb_name = f"{task.model_type}_{task.model_size}_{task_type}_{task.num_classes}_{task.train_projector}"
-        exp_count_str = f"export WANDB_TAGS=model_type-{task.model_type},model_size-{task.model_size},task_type-{task_type},num_classes-{task.num_classes},train_projector-{task.train_projector}"
+        task_name = task.task_type.replace(' ','_')
+        wandb_name = f"{task.model_type}_{task.model_size}_{task_name}_{task.num_classes}_{task.train_projector}"
+        exp_count_str = f"export WANDB_TAGS=model_type-{task.model_type},model_size-{task.model_size},task_type-{task_name},num_classes-{task.num_classes},train_projector-{task.train_projector}"
         file_path = f"{folder}/{wandb_name}.sh"        
         
         task_list.append(task)
-        command = command_lookup[(task.model_type, task_type, task.train_projector, task.num_classes)].format(strategy=task.task_type, seed=30)
+        
+        iden = (task.model_type, task_type, task.train_projector, task.num_classes)
+        print(iden)
+        # iden = (task.model_type, task_name, task.train_projector, task.num_classes)
+        # print(iden)
+        command = command_lookup[iden].format(strategy=task.task_type, seed=30)
         # print(f"Running: {command}")
         cmds = [preramble, exp_count_str, command]
         script = concat_into_script(cmds)

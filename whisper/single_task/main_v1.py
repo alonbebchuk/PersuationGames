@@ -1,3 +1,5 @@
+import wandb
+wandb.init(project="werewolf")
 import argparse
 import jax
 import jax.numpy as jnp
@@ -246,8 +248,6 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
     n_devices = len(devices)
 
     worker_id = jax.process_index()
-    if worker_id == 0:
-        wandb.init(project="werewolf-single-task", name=f"whisper-v1-{args.strategy}-seed{args.seed}", tags=["whisper", "v1", args.strategy, f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices

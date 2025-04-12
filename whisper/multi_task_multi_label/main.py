@@ -1,3 +1,5 @@
+import wandb
+wandb.init(project="werewolf")
 import argparse
 import jax
 import jax.numpy as jnp
@@ -9,7 +11,6 @@ import optax
 import os
 import random
 import sys
-import wandb
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(ROOT_DIR)
@@ -233,7 +234,7 @@ p_train_step = jax.pmap(train_step, axis_name="batch", in_axes=(0, 0, 0), donate
 
 p_eval_step = jax.pmap(eval_step, axis_name="batch", in_axes=(0, 0))
 
-
+from transformers import FlaxWhisperForConditionalGeneration
 def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtractor, model: FlaxWhisperForConditionalGeneration) -> None:
     train_dataset = load_dataset(args, tokenizer, "train")
     val_dataset = load_dataset(args, tokenizer, "val")
@@ -244,7 +245,7 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf-multi-task-multi-label", name=f"whisper-v1-seed{args.seed}", tags=["whisper", "v1", f"seed{args.seed}"], config=vars(args))
+        
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
