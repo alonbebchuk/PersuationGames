@@ -1,0 +1,23 @@
+Running: python3.10 bert/multi_task_binary_label/main.py --seed 30
+Running: python3.10 bert/multi_task_multi_label/main.py --seed 30
+Running: python3.10 bert/single_task/main.py --strategy='Accusation' --seed 30
+Running: python3.10 bert/single_task/main.py --strategy='Call for Action' --seed 30
+Running: python3.10 bert/single_task/main.py --strategy='Defense' --seed 30
+Running: python3.10 bert/single_task/main.py --strategy='Evidence' --seed 30
+Running: python3.10 bert/single_task/main.py --strategy='Identity Declaration' --seed 30
+Running: python3.10 bert/single_task/main.py --strategy='Interrogation' --seed 30
+Running: python3.10 whisper/multi_task_binary_label/main_v2.py --seed 30
+Running: python3.10 whisper/multi_task_multi_label/main.py --seed 30
+Running: python3.10 whisper/multi_task_binary_label/main_v1.py --seed 30
+Running: python3.10 whisper/single_task/main_v2.py --strategy='Accusation' --seed 30
+Running: python3.10 whisper/single_task/main_v1.py --strategy='Accusation' --seed 30
+Running: python3.10 whisper/single_task/main_v2.py --strategy='Call for Action' --seed 30
+Running: python3.10 whisper/single_task/main_v1.py --strategy='Call for Action' --seed 30
+Running: python3.10 whisper/single_task/main_v2.py --strategy='Defense' --seed 30
+Running: python3.10 whisper/single_task/main_v1.py --strategy='Defense' --seed 30
+Running: python3.10 whisper/single_task/main_v2.py --strategy='Evidence' --seed 30
+Running: python3.10 whisper/single_task/main_v1.py --strategy='Evidence' --seed 30
+Running: python3.10 whisper/single_task/main_v2.py --strategy='Identity Declaration' --seed 30
+Running: python3.10 whisper/single_task/main_v1.py --strategy='Identity Declaration' --seed 30
+Running: python3.10 whisper/single_task/main_v2.py --strategy='Interrogation' --seed 30
+Running: python3.10 whisper/single_task/main_v1.py --strategy='Interrogation' --seed 30

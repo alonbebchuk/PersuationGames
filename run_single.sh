@@ -40,11 +40,11 @@ num_classes=$(($num_classes))
 echo "Running with parameters:"
 echo "Model Type: $model_type"
 echo "Model Size: $model_size"
-echo "Task Type: $task_type"
+# echo "Task Type: $task_type"
 echo "Train Projector: $train_projector"
 echo "Number of Classes: $num_classes"
 echo "Seed: $seed"
-echo "Strategy: $strategy"
+# echo "Strategy: $strategy"
 echo ""
 
 
