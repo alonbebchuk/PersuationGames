@@ -17,7 +17,7 @@ config =dag.load_config("""
 ---
 MODEL_TYPE, model_type, "bert"
 MODEL_SIZE, model_size, "base"
-TASK_TYPE, task_type, "multi-task"
+TASK_TYPE, task_type, "multitask"
 TRAIN_PROJECTOR, train_projector, False
 
 NUM_CLASSES, num_classes, 2 #can binary or multi-class
@@ -59,20 +59,20 @@ command_lookup = {
     # whisper, strat, train_projector=True, num_classes=2
     ('whisper', 'strat', True, 2): "python3.10 whisper/single_task/main_v2.py --strategy='{strategy}' --seed {seed}",
     
-    # whisper, multi-task, train_projector=False, num_classes=2
-    ('whisper', 'multi-task', False, 2): "python3.10 whisper/multi_task_binary_label/main_v1.py --seed {seed}",
+    # whisper, multitask, train_projector=False, num_classes=2
+    ('whisper', 'multitask', False, 2): "python3.10 whisper/multi_task_binary_label/main_v1.py --seed {seed}",
     
-    # whisper, multi-task, train_projector=True, num_classes=6
-    ('whisper', 'multi-task', True, 6): "python3.10 whisper/multi_task_multi_label/main.py --seed {seed}",
+    # whisper, multitask, train_projector=True, num_classes=6
+    ('whisper', 'multitask', True, 6): "python3.10 whisper/multi_task_multi_label/main.py --seed {seed}",
     
-    # bert, multi-task, train_projector=True, num_classes=2
-    ('bert', 'multi-task', True, 2): "python3.10 bert/multi_task_binary_label/main.py --seed {seed}",
+    # bert, multitask, train_projector=True, num_classes=2
+    ('bert', 'multitask', True, 2): "python3.10 bert/multi_task_binary_label/main.py --seed {seed}",
     
-    # bert, multi-task, train_projector=True, num_classes=6
-    ('bert', 'multi-task', True, 6): "python3.10 bert/multi_task_multi_label/main.py --seed {seed}",
+    # bert, multitask, train_projector=True, num_classes=6
+    ('bert', 'multitask', True, 6): "python3.10 bert/multi_task_multi_label/main.py --seed {seed}",
     
-    # whisper, multi-task, train_projector=True, num_classes=2
-    ('whisper', 'multi-task', True, 2): "python3.10 whisper/multi_task_binary_label/main_v2.py --seed {seed}"
+    # whisper, multitask, train_projector=True, num_classes=2
+    ('whisper', 'multitask', True, 2): "python3.10 whisper/multi_task_binary_label/main_v2.py --seed {seed}"
 }
 
 
@@ -80,11 +80,13 @@ command_lookup = {
 from sklearn.utils import Bunch
 with dag.DAG() as experiment:
  
-    model_type("bert","whisper") >> model_size(
+    model_type(
+        # "bert",
+        "whisper") >> model_size(
         "small",
         # "medium"
         ) >> \
-        task_type("multi-task", "Accusation", "Call for Action", "Defense", "Evidence", "Identity Declaration", "Interrogation") >> \
+        task_type("multitask", "Accusation", "Call for Action", "Defense", "Evidence", "Identity Declaration", "Interrogation") >> \
         train_projector(True, False) >>\
             num_classes(2, 6)
     # batch_size(512) >> lr(0.0006)
@@ -112,10 +114,10 @@ def main(mode):
         else:
             if not task.train_projector and task.num_classes==6:
                 continue
-        if task.num_classes==6 and task.task_type not in ["multi-task"]: #can't have both
+        if task.num_classes==6 and task.task_type not in ["multitask"]: #can't have both
             continue
         
-        task_type = "strat" if task.task_type not in ["multi-task"] else "multi-task"
+        task_type = "strat" if task.task_type not in ["multitask"] else "multitask"
         # task.perf = perf
         if mode in ["local", "verbose"]:
             folder = f"/tmp/scripts/{formatted_date}"
@@ -123,13 +125,15 @@ def main(mode):
         else:
             folder = f"gs://meliad2_us2_backup/scripts/{formatted_date}"
         
-        wandb_name = f"{task.model_type}_{task.model_size}_{task.task_type.replace(' ','_')}_{task.num_classes}_{task.train_projector}"
+        task_type = task.task_type.replace(' ','_')
+        wandb_name = f"{task.model_type}_{task.model_size}_{task_type}_{task.num_classes}_{task.train_projector}"
+        exp_count_str = f"export WANDB_TAGS=model_type-{task.model_type},model_size-{task.model_size},task_type-{task_type},num_classes-{task.num_classes},train_projector-{task.train_projector}"
         file_path = f"{folder}/{wandb_name}.sh"        
         
         task_list.append(task)
         command = command_lookup[(task.model_type, task_type, task.train_projector, task.num_classes)].format(strategy=task.task_type, seed=30)
         # print(f"Running: {command}")
-        cmds = [preramble, command]
+        cmds = [preramble, exp_count_str, command]
         script = concat_into_script(cmds)
         
         
