@@ -100,7 +100,7 @@ class AudioCollator:
 
         decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
         decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
-        labels = np.empty(batch_size, dtype=np.int32)
+        labels = np.empty([batch_size, len(STRATEGIES)], dtype=np.int32)
         ids = []
 
         for i, sample in enumerate(batch):
