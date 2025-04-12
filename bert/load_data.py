@@ -14,6 +14,9 @@ HUGGINGFACE_DATASET_URL = "https://huggingface.co/datasets/bolinlai/Werewolf-Amo
 def load_data(mode: str) -> None:
     json_path = f"{DATA_DIR}/{mode}.json"
     json_url = f"{HUGGINGFACE_DATASET_URL}/{mode}.json"
+    if os.path.exists(json_path):
+        print(f"Data file {json_path} already exists. Skipping download.")
+        return
 
     response = requests.get(json_url)
     response.raise_for_status()
