@@ -1,0 +1,52 @@
+04/14/2025 12:38:52 - INFO - __main__ - ------NEW RUN-----
+04/14/2025 12:38:52 - INFO - __main__ - Training/evaluation parameters Namespace(strategy='Evidence', seed=42, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=64, context_size=5, eval_batch_size=256, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, out_dir='/home/alonb/PersuationGames/out/whisper/projection/single_task/Evidence/42')
+04/14/2025 12:47:36 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.92      1.00      0.96      2125
+           1       1.00      0.01      0.02       179
+
+    accuracy                           0.92      2304
+   macro avg       0.96      0.51      0.49      2304
+weighted avg       0.93      0.92      0.89      2304
+
+04/14/2025 12:54:36 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.93      0.97      0.95      2125
+           1       0.35      0.16      0.22       179
+
+    accuracy                           0.91      2304
+   macro avg       0.64      0.57      0.59      2304
+weighted avg       0.89      0.91      0.90      2304
+
+04/14/2025 13:01:39 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.93      0.99      0.96      2125
+           1       0.55      0.12      0.19       179
+
+    accuracy                           0.92      2304
+   macro avg       0.74      0.55      0.58      2304
+weighted avg       0.90      0.92      0.90      2304
+
+04/14/2025 13:07:11 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.94      0.98      0.96      2125
+           1       0.49      0.21      0.29       179
+
+    accuracy                           0.92      2304
+   macro avg       0.71      0.59      0.62      2304
+weighted avg       0.90      0.92      0.91      2304
+
+04/14/2025 13:14:13 - INFO - __main__ - 
+              precision    recall  f1-score   support
+
+           0       0.93      0.99      0.96      2125
+           1       0.55      0.18      0.28       179
+
+    accuracy                           0.92      2304
+   macro avg       0.74      0.59      0.62      2304
+weighted avg       0.91      0.92      0.91      2304
+
