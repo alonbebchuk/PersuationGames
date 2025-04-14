@@ -1,9 +1,5 @@
 import wandb
 import os
-if not os.path.exists("/tmp/wandb_lock"):
-    wandb.init(project="werewolf")
-    with open("/tmp/wandb_lock", "w") as f:
-        f.write("1")
 import argparse
 import jax
 import jax.numpy as jnp
@@ -100,13 +96,11 @@ class AudioCollator:
 
         decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
         decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
-        labels = np.empty([batch_size, len(STRATEGIES)], dtype=np.int32)
+        labels = np.empty((batch_size, len(STRATEGIES)), dtype=np.int32)
         ids = []
 
         for i, sample in enumerate(batch):
-            audio_path = sample["audio_path"]
-            cached_data = self.cache[audio_path]
-
+            cached_data = self.cache[sample["audio_path"]]
             end_sample = cached_data["length"] if sample["end_sample"] == -1 else sample["end_sample"]
             start_sample = max(end_sample - MAX_SAMPLE_LENGTH, sample["start_sample"])
 
@@ -238,8 +232,7 @@ p_train_step = jax.pmap(train_step, axis_name="batch", in_axes=(0, 0, 0), donate
 
 p_eval_step = jax.pmap(eval_step, axis_name="batch", in_axes=(0, 0))
 
-from transformers import FlaxWhisperForConditionalGeneration
-def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtractor, model: FlaxWhisperForConditionalGeneration) -> None:
+def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtractor, model: FlaxWhisperForSequenceClassification) -> None:
     train_dataset = load_dataset(args, tokenizer, "train")
     val_dataset = load_dataset(args, tokenizer, "val")
     test_dataset = load_dataset(args, tokenizer, "test")
@@ -248,7 +241,8 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
     n_devices = len(devices)
 
     worker_id = jax.process_index()
-        
+    if worker_id == 0:
+        wandb.init(project="werewolf", name=f"whisper-mtml-seed{args.seed}", tags=["whisper", "mtml", f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
@@ -430,7 +424,7 @@ def main() -> None:
         model_name = "openai/whisper-small"
         tokenizer = WhisperTokenizer.from_pretrained(model_name)
         feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
-        model = FlaxWhisperForSequenceClassification.from_pretrained(model_name, num_labels=2)
+        model = FlaxWhisperForSequenceClassification.from_pretrained(model_name, problem_type="multi_label_classification", num_labels=len(STRATEGIES))
 
         train(tokenizer, feature_extractor, model)
     except Exception as e:

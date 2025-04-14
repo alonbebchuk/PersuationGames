@@ -1,9 +1,5 @@
 import wandb
 import os
-if not os.path.exists("/tmp/wandb_lock"):
-    wandb.init(project="werewolf")
-    with open("/tmp/wandb_lock", "w") as f:
-        f.write("1")
 import argparse
 import jax
 import jax.numpy as jnp
@@ -192,6 +188,8 @@ def train(tokenizer: BertTokenizer, model: FlaxBertForSequenceClassification) ->
     n_devices = len(devices)
 
     worker_id = jax.process_index()
+    if worker_id == 0:
+        wandb.init(project="werewolf", name=f"bert-{args.strategy}-seed{args.seed}", tags=["bert", args.strategy, f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
