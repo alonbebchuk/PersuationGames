@@ -1,0 +1,50 @@
+{
+  "loss": 0.45533275604248047,
+  "f1": 0.31104355847355897,
+  "precision": 0.4389534588352664,
+  "recall": 0.24494256781786325,
+  "accuracy": 0.43582589285714285,
+  "report": "                      precision    recall  f1-score   support\n\nIdentity Declaration       0.50      0.26      0.34       212\n          Accusation       0.37      0.24      0.29       547\n       Interrogation       0.60      0.44      0.51       693\n     Call for Action       0.45      0.23      0.31       275\n             Defense       0.35      0.16      0.22       514\n            Evidence       0.35      0.13      0.19       343\n\n           micro avg       0.46      0.27      0.34      2584\n           macro avg       0.44      0.24      0.31      2584\n        weighted avg       0.45      0.27      0.33      2584\n         samples avg       0.18      0.17      0.17      2584\n",
+  "Identity Declaration": {
+    "f1": 0.3426791277258567,
+    "precision": 0.5045871559633027,
+    "recall": 0.25943396226415094,
+    "accuracy": 0.9411272321428571,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.95      0.98      0.97      3372\n           1       0.50      0.26      0.34       212\n\n    accuracy                           0.94      3584\n   macro avg       0.73      0.62      0.66      3584\nweighted avg       0.93      0.94      0.93      3584\n"
+  },
+  "Accusation": {
+    "f1": 0.292358803986711,
+    "precision": 0.3707865168539326,
+    "recall": 0.2413162705667276,
+    "accuracy": 0.8217075892857143,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.87      0.93      0.90      3037\n           1       0.37      0.24      0.29       547\n\n    accuracy                           0.82      3584\n   macro avg       0.62      0.58      0.60      3584\nweighted avg       0.80      0.82      0.81      3584\n"
+  },
+  "Interrogation": {
+    "f1": 0.5091514143094842,
+    "precision": 0.6011787819253438,
+    "recall": 0.44155844155844154,
+    "accuracy": 0.8353794642857143,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.87      0.93      0.90      2891\n           1       0.60      0.44      0.51       693\n\n    accuracy                           0.84      3584\n   macro avg       0.74      0.69      0.71      3584\nweighted avg       0.82      0.84      0.83      3584\n"
+  },
+  "Call for Action": {
+    "f1": 0.3076923076923077,
+    "precision": 0.45390070921985815,
+    "recall": 0.23272727272727273,
+    "accuracy": 0.9196428571428571,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.94      0.98      0.96      3309\n           1       0.45      0.23      0.31       275\n\n    accuracy                           0.92      3584\n   macro avg       0.70      0.60      0.63      3584\nweighted avg       0.90      0.92      0.91      3584\n"
+  },
+  "Defense": {
+    "f1": 0.2237017310252996,
+    "precision": 0.35443037974683544,
+    "recall": 0.16342412451361868,
+    "accuracy": 0.8373325892857143,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.87      0.95      0.91      3070\n           1       0.35      0.16      0.22       514\n\n    accuracy                           0.84      3584\n   macro avg       0.61      0.56      0.57      3584\nweighted avg       0.80      0.84      0.81      3584\n"
+  },
+  "Evidence": {
+    "f1": 0.1906779661016949,
+    "precision": 0.3488372093023256,
+    "recall": 0.13119533527696792,
+    "accuracy": 0.8934151785714286,
+    "report": "              precision    recall  f1-score   support\n\n           0       0.91      0.97      0.94      3241\n           1       0.35      0.13      0.19       343\n\n    accuracy                           0.89      3584\n   macro avg       0.63      0.55      0.57      3584\nweighted avg       0.86      0.89      0.87      3584\n"
+  }
+}

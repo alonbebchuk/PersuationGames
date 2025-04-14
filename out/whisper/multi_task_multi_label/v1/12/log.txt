@@ -1,0 +1,62 @@
+04/14/2025 06:57:40 - INFO - __main__ - ------NEW RUN-----
+04/14/2025 06:57:40 - INFO - __main__ - Training/evaluation parameters Namespace(seed=12, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=64, context_size=5, eval_batch_size=256, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, out_dir='/home/alonb/PersuationGames/out/whisper/multi_task_multi_label/v1/12')
+04/14/2025 07:06:23 - INFO - __main__ - 
+                      precision    recall  f1-score   support
+
+Identity Declaration       0.00      0.00      0.00       124
+          Accusation       0.63      0.06      0.12       341
+       Interrogation       0.65      0.21      0.32       368
+     Call for Action       0.00      0.00      0.00       115
+             Defense       0.00      0.00      0.00       375
+            Evidence       0.00      0.00      0.00       179
+
+           micro avg       0.65      0.07      0.12      1502
+           macro avg       0.21      0.05      0.07      1502
+        weighted avg       0.30      0.07      0.10      1502
+         samples avg       0.04      0.04      0.04      1502
+
+04/14/2025 07:13:28 - INFO - __main__ - 
+                      precision    recall  f1-score   support
+
+Identity Declaration       0.44      0.19      0.26       124
+          Accusation       0.50      0.29      0.36       341
+       Interrogation       0.48      0.46      0.47       368
+     Call for Action       0.49      0.27      0.35       115
+             Defense       0.56      0.10      0.16       375
+            Evidence       0.61      0.12      0.20       179
+
+           micro avg       0.50      0.25      0.33      1502
+           macro avg       0.51      0.24      0.30      1502
+        weighted avg       0.52      0.25      0.31      1502
+         samples avg       0.16      0.14      0.15      1502
+
+04/14/2025 07:20:35 - INFO - __main__ - 
+                      precision    recall  f1-score   support
+
+Identity Declaration       0.43      0.16      0.23       124
+          Accusation       0.46      0.27      0.34       341
+       Interrogation       0.50      0.43      0.46       368
+     Call for Action       0.45      0.19      0.27       115
+             Defense       0.40      0.28      0.33       375
+            Evidence       0.46      0.15      0.23       179
+
+           micro avg       0.45      0.28      0.35      1502
+           macro avg       0.45      0.25      0.31      1502
+        weighted avg       0.45      0.28      0.34      1502
+         samples avg       0.17      0.16      0.16      1502
+
+04/14/2025 07:27:39 - INFO - __main__ - 
+                      precision    recall  f1-score   support
+
+Identity Declaration       0.44      0.21      0.28       124
+          Accusation       0.45      0.30      0.36       341
+       Interrogation       0.53      0.40      0.45       368
+     Call for Action       0.46      0.18      0.26       115
+             Defense       0.47      0.15      0.23       375
+            Evidence       0.44      0.19      0.27       179
+
+           micro avg       0.48      0.26      0.34      1502
+           macro avg       0.46      0.24      0.31      1502
+        weighted avg       0.47      0.26      0.33      1502
+         samples avg       0.16      0.14      0.15      1502
+

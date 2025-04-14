@@ -1,8 +1,8 @@
 {
-  "loss": 0.5096058164324079,
-  "f1": 0.2052401746724891,
-  "precision": 0.40869565217391307,
-  "recall": 0.13702623906705538,
-  "accuracy": 0.8984375,
-  "report": "              precision    recall  f1-score   support\n\n           0       0.91      0.98      0.95      3241\n           1       0.41      0.14      0.21       343\n\n    accuracy                           0.90      3584\n   macro avg       0.66      0.56      0.58      3584\nweighted avg       0.87      0.90      0.87      3584\n"
+  "loss": 0.3352508693933487,
+  "f1": 0.22044088176352705,
+  "precision": 0.3525641025641026,
+  "recall": 0.16034985422740525,
+  "accuracy": 0.8914620535714286,
+  "report": "              precision    recall  f1-score   support\n\n           0       0.92      0.97      0.94      3241\n           1       0.35      0.16      0.22       343\n\n    accuracy                           0.89      3584\n   macro avg       0.63      0.56      0.58      3584\nweighted avg       0.86      0.89      0.87      3584\n"
 }

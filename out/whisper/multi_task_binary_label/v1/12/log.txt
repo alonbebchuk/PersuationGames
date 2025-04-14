@@ -1,52 +1,52 @@
-04/12/2025 02:34:45 - INFO - __main__ - ------NEW RUN-----
-04/12/2025 02:34:45 - INFO - __main__ - Training/evaluation parameters Namespace(seed=12, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=64, context_size=5, eval_batch_size=256, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, out_dir='/home/alonb/PersuationGames/out/whisper/multi_task_binary_label/v1/12')
-04/12/2025 03:17:49 - INFO - __main__ - 
+04/13/2025 13:06:40 - INFO - __main__ - ------NEW RUN-----
+04/13/2025 13:06:40 - INFO - __main__ - Training/evaluation parameters Namespace(seed=12, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=32, context_size=5, eval_batch_size=128, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, out_dir='/home/alonb/PersuationGames/out/whisper/multi_task_binary_label/v1/12')
+04/13/2025 13:51:26 - INFO - __main__ - 
               precision    recall  f1-score   support
 
-           0       0.95      0.98      0.97     13032
-           1       0.80      0.58      0.67      1560
+           0       0.95      0.98      0.97     13146
+           1       0.79      0.59      0.68      1574
 
-    accuracy                           0.94     14592
-   macro avg       0.88      0.78      0.82     14592
-weighted avg       0.94      0.94      0.94     14592
+    accuracy                           0.94     14720
+   macro avg       0.87      0.79      0.82     14720
+weighted avg       0.94      0.94      0.94     14720
 
-04/12/2025 04:00:03 - INFO - __main__ - 
+04/13/2025 14:34:32 - INFO - __main__ - 
               precision    recall  f1-score   support
 
-           0       0.96      0.97      0.97     13032
-           1       0.75      0.65      0.70      1560
+           0       0.97      0.96      0.96     13146
+           1       0.66      0.72      0.69      1574
 
-    accuracy                           0.94     14592
-   macro avg       0.85      0.81      0.83     14592
-weighted avg       0.94      0.94      0.94     14592
+    accuracy                           0.93     14720
+   macro avg       0.81      0.84      0.83     14720
+weighted avg       0.93      0.93      0.93     14720
 
-04/12/2025 04:42:12 - INFO - __main__ - 
+04/13/2025 15:17:36 - INFO - __main__ - 
               precision    recall  f1-score   support
 
-           0       0.96      0.96      0.96     13032
-           1       0.70      0.70      0.70      1560
+           0       0.96      0.97      0.96     13146
+           1       0.72      0.66      0.69      1574
 
-    accuracy                           0.94     14592
-   macro avg       0.83      0.83      0.83     14592
-weighted avg       0.94      0.94      0.94     14592
+    accuracy                           0.94     14720
+   macro avg       0.84      0.81      0.83     14720
+weighted avg       0.93      0.94      0.94     14720
 
-04/12/2025 05:24:33 - INFO - __main__ - 
+04/13/2025 15:57:34 - INFO - __main__ - 
               precision    recall  f1-score   support
 
-           0       0.96      0.97      0.97     13032
-           1       0.73      0.66      0.69      1560
+           0       0.96      0.97      0.96     13146
+           1       0.72      0.66      0.69      1574
 
-    accuracy                           0.94     14592
-   macro avg       0.85      0.81      0.83     14592
-weighted avg       0.93      0.94      0.94     14592
+    accuracy                           0.94     14720
+   macro avg       0.84      0.81      0.83     14720
+weighted avg       0.93      0.94      0.94     14720
 
-04/12/2025 06:03:07 - INFO - __main__ - 
+04/13/2025 16:37:31 - INFO - __main__ - 
               precision    recall  f1-score   support
 
-           0       0.96      0.97      0.97     13032
-           1       0.73      0.66      0.69      1560
+           0       0.96      0.97      0.97     13146
+           1       0.73      0.67      0.70      1574
 
-    accuracy                           0.94     14592
-   macro avg       0.84      0.82      0.83     14592
-weighted avg       0.93      0.94      0.94     14592
+    accuracy                           0.94     14720
+   macro avg       0.85      0.82      0.83     14720
+weighted avg       0.94      0.94      0.94     14720
 
