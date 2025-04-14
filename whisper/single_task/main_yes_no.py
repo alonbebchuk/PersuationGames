@@ -52,7 +52,7 @@ parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.out_dir = os.path.join(ROOT_DIR, f"out/whisper/single_task/v1/{args.strategy}/{args.seed}")
+args.out_dir = os.path.join(ROOT_DIR, f"out/whisper/single_task/yes_no/{args.strategy}/{args.seed}")
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -249,7 +249,7 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"whisper-{args.strategy}-v1-seed{args.seed}", tags=["whisper", args.strategy, "v1", f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"whisper-{args.strategy}-yes_no-seed{args.seed}", tags=["whisper", args.strategy, "yes_no", f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices

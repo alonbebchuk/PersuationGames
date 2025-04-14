@@ -99,17 +99,17 @@ def main():
     tables_dir.mkdir(exist_ok=True)
 
     bert_st = load_single_task_results(out_dir / "bert" / "single_task")
-    whisper_st = load_single_task_results(out_dir / "whisper" / "single_task" / "v1")
+    whisper_st = load_single_task_results(out_dir / "whisper" / "single_task" / "yes_no")
 
     bert_mt_results, bert_mt_overall = load_multi_task_results(out_dir / "bert" / "multi_task_binary_label")
-    whisper_mt_results, whisper_mt_overall = load_multi_task_results(out_dir / "whisper" / "multi_task_binary_label" / "v1")
+    whisper_mt_results, whisper_mt_overall = load_multi_task_results(out_dir / "whisper" / "multi_task_binary_label" / "yes_no")
 
     for metric, metric_name in [('f1', 'F1'), ('accuracy', 'Accuracy')]:
         all_results = [
             create_row("BERT ST", bert_st, metric=metric),
             create_row("BERT MTBL", bert_mt_results, bert_mt_overall, metric=metric),
-            create_row("Whisper V1 ST", whisper_st, metric=metric),
-            create_row("Whisper V1 MTBL", whisper_mt_results, whisper_mt_overall, metric=metric),
+            create_row("Whisper YN ST", whisper_st, metric=metric),
+            create_row("Whisper YN MTBL", whisper_mt_results, whisper_mt_overall, metric=metric),
         ]
 
         header = "| " + " | ".join([metric_name.ljust(METHOD_WIDTH)] + [s.ljust(STRATEGY_WIDTHS[s]) for s in STRATEGIES] + ["Avg".ljust(AVG_WIDTH)]) + " |"
@@ -120,8 +120,8 @@ def main():
             separator,
             create_row("BERT ST", bert_st, metric=metric, all_results=all_results),
             create_row("BERT MTBL", bert_mt_results, bert_mt_overall, metric=metric, all_results=all_results),
-            create_row("Whisper V1 ST", whisper_st, metric=metric, all_results=all_results),
-            create_row("Whisper V1 MTBL", whisper_mt_results, whisper_mt_overall, metric=metric, all_results=all_results),
+            create_row("Whisper YN ST", whisper_st, metric=metric, all_results=all_results),
+            create_row("Whisper YN MTBL", whisper_mt_results, whisper_mt_overall, metric=metric, all_results=all_results),
         ]
 
         with open(tables_dir / f"{metric}_table.md", "w") as f:

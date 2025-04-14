@@ -11,17 +11,15 @@ import optax
 import os
 import random
 import sys
-import wandb
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(ROOT_DIR)
 
 from models.flax_whisper_for_sequence_classification import FlaxWhisperForSequenceClassification
-from whisper.multi_task_binary_label.load_dataset import load_dataset, STRATEGIES, DATA_DIR
+from whisper.multi_task_multi_label.load_dataset import load_dataset, STRATEGIES, DATA_DIR
 from datasets import Dataset
 from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
-from flax.training.common_utils import onehot
 from sklearn.metrics import accuracy_score, classification_report, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
@@ -32,7 +30,9 @@ from typing import Any, Callable, Dict, List, Tuple
 logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
+# required
 parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
+# optional
 parser.add_argument("--adam_b1", type=float, default=0.9, help="Adam b1")
 parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
 parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
@@ -50,7 +50,7 @@ parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.out_dir = os.path.join(ROOT_DIR, f"out/whisper/multi_task_binary_label/v2/{args.seed}")
+args.out_dir = os.path.join(ROOT_DIR, f"out/whisper/multi_task_multi_label/yes_no/{args.seed}")
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -96,14 +96,11 @@ class AudioCollator:
 
         decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
         decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
-        labels = np.empty(batch_size, dtype=np.int32)
-        strategy = []
+        labels = np.empty((batch_size, len(STRATEGIES)), dtype=np.int32)
         ids = []
 
         for i, sample in enumerate(batch):
-            audio_path = sample["audio_path"]
-            cached_data = self.cache[audio_path]
-
+            cached_data = self.cache[sample["audio_path"]]
             end_sample = cached_data["length"] if sample["end_sample"] == -1 else sample["end_sample"]
             start_sample = max(end_sample - MAX_SAMPLE_LENGTH, sample["start_sample"])
 
@@ -113,7 +110,6 @@ class AudioCollator:
             decoder_input_ids[i] = sample["decoder_input_ids"]
             decoder_attention_mask[i] = sample["decoder_attention_mask"]
             labels[i] = sample["labels"]
-            strategy.append(sample["strategy"])
             ids.append(sample["id"])
 
         features = self.feature_extractor(
@@ -130,7 +126,6 @@ class AudioCollator:
             "input_features": features["input_features"],
             "attention_mask": features["attention_mask"],
             "labels": labels,
-            "strategy": strategy,
             "id": ids,
         }
 
@@ -163,14 +158,14 @@ def create_train_state(model: FlaxWhisperForSequenceClassification, learning_rat
     )
 
     def cross_entropy_loss(logits: jnp.ndarray, labels: jnp.ndarray) -> jnp.ndarray:
-        xentropy = optax.softmax_cross_entropy(logits=logits, labels=onehot(labels, num_classes=2))
+        xentropy = optax.sigmoid_binary_cross_entropy(logits=logits, labels=labels)
         return jnp.mean(xentropy)
 
     return TrainState.create(
         apply_fn=model.__call__,
         params=model.params,
         tx=optimizer,
-        logits_fn=lambda logits: logits.argmax(-1),
+        logits_fn=lambda logits: (jax.nn.sigmoid(logits) > 0.5).astype(jnp.int32),
         loss_fn=cross_entropy_loss,
     )
 
@@ -229,14 +224,13 @@ def eval_step(state: TrainState, batch: Dict[str, jnp.ndarray]) -> Tuple[jnp.nda
     logits = outputs.logits
     loss = state.loss_fn(logits, batch["labels"])
     loss = jax.lax.pmean(loss, axis_name="batch")
-    pred = state.logits_fn(logits)
-    return loss, pred, batch["labels"]
+    preds = state.logits_fn(logits)
+    return loss, preds, batch["labels"]
 
 
 p_train_step = jax.pmap(train_step, axis_name="batch", in_axes=(0, 0, 0), donate_argnums=(0,))
 
 p_eval_step = jax.pmap(eval_step, axis_name="batch", in_axes=(0, 0))
-
 
 def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtractor, model: FlaxWhisperForSequenceClassification) -> None:
     train_dataset = load_dataset(args, tokenizer, "train")
@@ -248,7 +242,7 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"whisper-mtbl-v2-seed{args.seed}", tags=["whisper", "mtbl", "v2", f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"whisper-mtml-seed{args.seed}", tags=["whisper", "mtml", f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
@@ -290,7 +284,6 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
                 continue
 
             _ = batch.pop("id")
-            _ = batch.pop("strategy")
             batch = {
                 k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
                 for k, v in batch.items()
@@ -360,10 +353,8 @@ def evaluate(feature_extractor: WhisperFeatureExtractor, state: TrainState, eval
     running_loss = 0.0
     all_preds = []
     all_labels = []
-    all_strategies = []
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         _ = batch.pop("id")
-        strategy = batch.pop("strategy")
         per_device_batch_size = global_eval_batch_size // n_devices
         batch = {
             k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
@@ -375,31 +366,28 @@ def evaluate(feature_extractor: WhisperFeatureExtractor, state: TrainState, eval
             for k, v in batch.items()
         }
 
-        loss, pred, labels = p_eval_step(state, batch)
+        loss, preds, labels = p_eval_step(state, batch)
 
         running_loss += jnp.mean(loss).item()
-        all_preds.extend(jax.device_get(pred).reshape(-1))
-        all_labels.extend(jax.device_get(labels).reshape(-1))
-        all_strategies.extend(strategy)
+        all_preds.extend(jax.device_get(preds).reshape(-1, len(STRATEGIES)))
+        all_labels.extend(jax.device_get(labels).reshape(-1, len(STRATEGIES)))
 
     eval_loss = running_loss / len(eval_dataloader)
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
-    all_strategies = np.array(all_strategies)
 
     results = {
         "loss": eval_loss,
-        "f1": f1_score(y_true=all_labels, y_pred=all_preds),
-        "precision": precision_score(y_true=all_labels, y_pred=all_preds),
-        "recall": recall_score(y_true=all_labels, y_pred=all_preds),
+        "f1": f1_score(y_true=all_labels, y_pred=all_preds, average="macro"),
+        "precision": precision_score(y_true=all_labels, y_pred=all_preds, average="macro"),
+        "recall": recall_score(y_true=all_labels, y_pred=all_preds, average="macro"),
         "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
-        "report": classification_report(y_true=all_labels, y_pred=all_preds),
+        "report": classification_report(y_true=all_labels, y_pred=all_preds, target_names=STRATEGIES),
     }
 
-    for strategy in STRATEGIES:
-        strategy_mask = all_strategies == strategy
-        strategy_preds = all_preds[strategy_mask].tolist()
-        strategy_labels = all_labels[strategy_mask].tolist()
+    for i, strategy in enumerate(STRATEGIES):
+        strategy_preds = all_preds[:, i].tolist()
+        strategy_labels = all_labels[:, i].tolist()
         results[strategy] = {
             "f1": f1_score(y_true=strategy_labels, y_pred=strategy_preds),
             "precision": precision_score(y_true=strategy_labels, y_pred=strategy_preds),
@@ -436,7 +424,7 @@ def main() -> None:
         model_name = "openai/whisper-small"
         tokenizer = WhisperTokenizer.from_pretrained(model_name)
         feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
-        model = FlaxWhisperForSequenceClassification.from_pretrained(model_name, num_labels=2)
+        model = FlaxWhisperForSequenceClassification.from_pretrained(model_name, problem_type="multi_label_classification", num_labels=len(STRATEGIES))
 
         train(tokenizer, feature_extractor, model)
     except Exception as e:

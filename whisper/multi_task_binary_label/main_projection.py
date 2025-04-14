@@ -17,7 +17,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.append(ROOT_DIR)
 
 from models.flax_whisper_for_sequence_classification import FlaxWhisperForSequenceClassification
-from whisper.single_task.load_dataset import load_dataset, DATA_DIR
+from whisper.multi_task_binary_label.load_dataset import load_dataset, STRATEGIES, DATA_DIR
 from datasets import Dataset
 from flax import jax_utils, struct, traverse_util
 from flax.training import train_state
@@ -32,10 +32,7 @@ from typing import Any, Callable, Dict, List, Tuple
 logger = log.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
-# required
-parser.add_argument("--strategy", type=str, required=True, help="Name of strategy: Identity Declaration, Accusation, Interrogation, Call for Action, Defense, or Evidence")
 parser.add_argument("--seed", type=int, required=True, help="Random seed for initialization")
-# optional
 parser.add_argument("--adam_b1", type=float, default=0.9, help="Adam b1")
 parser.add_argument("--adam_b2", type=float, default=0.99, help="Adam b2")
 parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon for Adam optimizer.")
@@ -53,7 +50,7 @@ parser.add_argument("--warmup_steps", type=int, default=200, help="Linear warmup
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay if we apply some.")
 args = parser.parse_args()
 
-args.out_dir = os.path.join(ROOT_DIR, f"out/whisper/single_task/v2/{args.strategy}/{args.seed}")
+args.out_dir = os.path.join(ROOT_DIR, f"out/whisper/multi_task_binary_label/projection/{args.seed}")
 
 os.makedirs(args.out_dir, exist_ok=True)
 
@@ -100,6 +97,7 @@ class AudioCollator:
         decoder_input_ids = np.empty((batch_size, len(batch[0]["decoder_input_ids"])), dtype=np.int32)
         decoder_attention_mask = np.empty((batch_size, len(batch[0]["decoder_attention_mask"])), dtype=np.int32)
         labels = np.empty(batch_size, dtype=np.int32)
+        strategy = []
         ids = []
 
         for i, sample in enumerate(batch):
@@ -115,6 +113,7 @@ class AudioCollator:
             decoder_input_ids[i] = sample["decoder_input_ids"]
             decoder_attention_mask[i] = sample["decoder_attention_mask"]
             labels[i] = sample["labels"]
+            strategy.append(sample["strategy"])
             ids.append(sample["id"])
 
         features = self.feature_extractor(
@@ -131,6 +130,7 @@ class AudioCollator:
             "input_features": features["input_features"],
             "attention_mask": features["attention_mask"],
             "labels": labels,
+            "strategy": strategy,
             "id": ids,
         }
 
@@ -248,7 +248,7 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
 
     worker_id = jax.process_index()
     if worker_id == 0:
-        wandb.init(project="werewolf", name=f"whisper-{args.strategy}-v2-seed{args.seed}", tags=["whisper", args.strategy, "v2", f"seed{args.seed}"], config=vars(args))
+        wandb.init(project="werewolf", name=f"whisper-mtbl-projection-seed{args.seed}", tags=["whisper", "mtbl", "projection", f"seed{args.seed}"], config=vars(args))
 
     global_batch_size = get_adjusted_batch_size(args.batch_size, n_devices)
     per_device_batch_size = global_batch_size // n_devices
@@ -290,6 +290,7 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
                 continue
 
             _ = batch.pop("id")
+            _ = batch.pop("strategy")
             batch = {
                 k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
                 for k, v in batch.items()
@@ -320,7 +321,8 @@ def train(tokenizer: WhisperTokenizer, feature_extractor: WhisperFeatureExtracto
         if (epoch + 1) % args.evaluate_period == 0:
             results_val = evaluate(feature_extractor, state, val_dataset, "val")
             if worker_id == 0:
-                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key != "report"})
+                wandb.log({f"eval_{key}": value for key, value in results_val.items() if key != "report" and key not in STRATEGIES})
+                wandb.log({f"eval_{strategy}_{key}": value for strategy in STRATEGIES for key, value in results_val[strategy].items() if key != "report"})
             logging_loss = tr_loss
             logger.info(f"\n{results_val['report']}")
 
@@ -358,8 +360,10 @@ def evaluate(feature_extractor: WhisperFeatureExtractor, state: TrainState, eval
     running_loss = 0.0
     all_preds = []
     all_labels = []
+    all_strategies = []
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         _ = batch.pop("id")
+        strategy = batch.pop("strategy")
         per_device_batch_size = global_eval_batch_size // n_devices
         batch = {
             k: jnp.array(v).reshape((n_devices, per_device_batch_size) + v.shape[1:])
@@ -376,10 +380,12 @@ def evaluate(feature_extractor: WhisperFeatureExtractor, state: TrainState, eval
         running_loss += jnp.mean(loss).item()
         all_preds.extend(jax.device_get(pred).reshape(-1))
         all_labels.extend(jax.device_get(labels).reshape(-1))
+        all_strategies.extend(strategy)
 
     eval_loss = running_loss / len(eval_dataloader)
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
+    all_strategies = np.array(all_strategies)
 
     results = {
         "loss": eval_loss,
@@ -389,6 +395,18 @@ def evaluate(feature_extractor: WhisperFeatureExtractor, state: TrainState, eval
         "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
         "report": classification_report(y_true=all_labels, y_pred=all_preds),
     }
+
+    for strategy in STRATEGIES:
+        strategy_mask = all_strategies == strategy
+        strategy_preds = all_preds[strategy_mask].tolist()
+        strategy_labels = all_labels[strategy_mask].tolist()
+        results[strategy] = {
+            "f1": f1_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "precision": precision_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "recall": recall_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "accuracy": accuracy_score(y_true=strategy_labels, y_pred=strategy_preds),
+            "report": classification_report(y_true=strategy_labels, y_pred=strategy_preds),
+        }
 
     return results
 
@@ -429,5 +447,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    wandb.finish(exit_code=0)
-
+    wandb.finish()
