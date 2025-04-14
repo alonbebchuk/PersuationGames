@@ -1,2 +1,0 @@
-{'model_type': 'bert', 'task_type': 'single-task', 'strategy': 'Identity Declaration'}
-{'model_type': 'bert', 'task_type': 'multi-task', 'strategy': 'Identity Declaration'}
