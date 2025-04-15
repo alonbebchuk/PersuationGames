@@ -1,5 +1,5 @@
 04/13/2025 02:13:19 - INFO - __main__ - ------NEW RUN-----
-04/13/2025 02:13:19 - INFO - __main__ - Training/evaluation parameters Namespace(strategy='Identity Declaration', seed=42, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=32, context_size=5, eval_batch_size=128, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, out_dir='/home/alonb/PersuationGames/out/whisper/single_task/v1/Identity Declaration/42')
+04/13/2025 02:13:19 - INFO - __main__ - Training/evaluation parameters Namespace(strategy='Identity Declaration', seed=42, adam_b1=0.9, adam_b2=0.99, adam_epsilon=1e-08, batch_size=32, context_size=5, eval_batch_size=128, evaluate_period=2, learning_rate=1e-05, logging_steps=40, max_seq_length=448, num_train_epochs=10, num_workers=8, prefetch_factor=2, warmup_steps=200, weight_decay=0.0, out_dir='/home/alonb/PersuationGames/out/whisper/yes_no/single_task/Identity Declaration/42')
 04/13/2025 02:24:29 - INFO - __main__ - 
               precision    recall  f1-score   support
 
