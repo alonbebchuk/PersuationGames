@@ -25,7 +25,7 @@ def timestamp_to_sample(timestamp: str) -> int:
 
 
 def get_audio_array(filename: str) -> np.ndarray:
-    mp4_path = hf_hub_download(repo_id=DATASET_REPO_ID, filename=f"Youtube/videos/{filename}", repo_type="dataset", local_dir=AUDIO_DATA_DIR)
+    mp4_path = hf_hub_download(repo_id=DATASET_REPO_ID, filename=f"Youtube/videos/{filename}", repo_type="dataset")
     audio = AudioSegment.from_file(mp4_path, format="mp4").set_frame_rate(SAMPLING_RATE).set_channels(1)
     audio_array = np.array(audio.get_array_of_samples(), dtype=np.float32) / 32768.0
     os.remove(mp4_path)
