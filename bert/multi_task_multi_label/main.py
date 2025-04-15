@@ -321,7 +321,7 @@ def evaluate(state: TrainState, eval_dataset: Dataset) -> Dict[str, Any]:
         "f1": f1_score(y_true=all_labels, y_pred=all_preds, average="macro"),
         "precision": precision_score(y_true=all_labels, y_pred=all_preds, average="macro"),
         "recall": recall_score(y_true=all_labels, y_pred=all_preds, average="macro"),
-        "accuracy": accuracy_score(y_true=all_labels, y_pred=all_preds),
+        "accuracy": accuracy_score(y_true=all_labels.ravel(), y_pred=all_preds.ravel()),
         "report": classification_report(y_true=all_labels, y_pred=all_preds, target_names=STRATEGIES),
     }
 

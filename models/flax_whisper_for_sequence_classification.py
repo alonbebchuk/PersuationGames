@@ -52,16 +52,12 @@ class FlaxWhisperForSequenceClassificationModule(nn.Module):
             deterministic=deterministic,
         )
 
-        # Get the encoder's last hidden state for classification
         encoder_last_hidden_state = outputs.encoder_last_hidden_state if return_dict else outputs[0]
         
-        # Use the last token of the last hidden state as the pooled output
         pooled_output = self.projector(encoder_last_hidden_state[:,-1,:])
         
-        # Apply dropout
         pooled_output = self.dropout(pooled_output, deterministic=deterministic)
         
-        # Apply classifier
         logits = self.classifier(pooled_output)
 
         if not return_dict:
@@ -99,7 +95,6 @@ class FlaxWhisperForSequenceClassification(FlaxWhisperPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
-        # prepare decoder inputs
         if decoder_position_ids is None:
             if decoder_attention_mask is not None:
                 decoder_position_ids = (decoder_attention_mask.cumsum(-1) * decoder_attention_mask) - 1
@@ -111,7 +106,6 @@ class FlaxWhisperForSequenceClassification(FlaxWhisperPreTrainedModel):
         if decoder_attention_mask is None:
             decoder_attention_mask = jnp.ones_like(decoder_input_ids)
 
-        # Handle any PRNG if needed
         rngs = {"dropout": dropout_rng} if dropout_rng is not None else {}
 
         return self.module.apply(

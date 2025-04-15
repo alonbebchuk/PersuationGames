@@ -1,0 +1,63 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.misc,calc,fit}
+\usepackage{xcolor}
+
+\begin{document}
+
+\definecolor{bertblue}{RGB}{77,119,255}
+\definecolor{lightgray}{RGB}{230,230,230}
+\definecolor{promptgreen}{RGB}{230,255,230}
+
+\begin{tikzpicture}[
+    box/.style={draw, thick, text width=5cm, minimum height=1.5cm, align=center, rounded corners},
+    promptBox/.style={draw, thick, text width=6.5cm, minimum height=1.8cm, align=center, rounded corners},
+    arrow/.style={draw, ->, >=stealth, very thick},
+    moduleBox/.style={draw, thick, fill=lightgray, text width=2.5cm, minimum height=1cm, align=center, rounded corners},
+    bertBox/.style={draw, thick, fill=bertblue!40, text width=4cm, minimum height=1.5cm, align=center, rounded corners},
+    noteBox/.style={draw, thick, fill=lightgray!50, text width=5cm, minimum height=1cm, align=center, rounded corners},
+    ]
+    
+    % Title
+    \node[font=\large\bfseries] (title) at (9,6) {BERT Multi-Task Multi-Label (MTML) Model};
+    
+    % Previous Utterances
+    \node[box, fill=lightgray] (prev) at (4.5,4) {
+        \textbf{Previous Utterances} \\
+        \small Previous Utterances: \\
+        \small Utterance -\textgreater{} \{prev utterance 1\} \\
+        \small ... \\
+        \small Utterance -\textgreater{} \{prev utterance 5\}
+    };
+    
+    % Target Utterance
+    \node[box, fill=lightgray, below=0.5cm of prev] (target) {
+        \textbf{Last Utterance} \\
+        \small Last Utterance: \\
+        \small Utterance -\textgreater{} \{utterance\}
+    };
+    
+    % Tokenization
+    \node[moduleBox, right=1.5cm of prev] (tokenize) {Tokenize};
+    
+    % BERT Model
+    \node[bertBox, right=1.5cm of tokenize] (bert) {BERT-base \\(110M parameters)};
+    
+    % Classification Head (final output)
+    \node[moduleBox, right=1.5cm of bert] (classify) {Multi-Label Classification Head};
+    
+    % Arrows
+    \draw[arrow] (prev) -- (tokenize);
+    \draw[arrow] (target) -- (tokenize);
+    \draw[arrow] (tokenize) -- (bert);
+    \draw[arrow] (bert) -- (classify);
+    
+    % Note
+    \node[noteBox, below=1.0cm of bert] (note) {
+        \textbf{Multi-Task Multi-Label (MTML) Approach:} \\
+        \small One unified model that determines all strategies simultaneously without strategy prompting
+    };
+    
+\end{tikzpicture}
+
+\end{document}

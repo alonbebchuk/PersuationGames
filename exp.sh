@@ -1,11 +1,10 @@
 #!/bin/bash
+
 seeds=(12 42 87)
 strategies=("Identity Declaration" "Accusation" "Interrogation" "Call for Action" "Defense" "Evidence")
 
-
 python3.10 bert/load_data.py
 python3.10 whisper/load_data.py
-
 
 # bert
 for seed in "${seeds[@]}"
@@ -18,7 +17,6 @@ do
   python3.10 bert/multi_task_multi_label/main.py --seed ${seed}
 done
 
-
 # whisper projection
 for seed in "${seeds[@]}"
 do
@@ -30,7 +28,6 @@ do
   python3.10 whisper/multi_task_multi_label/main_projection.py --seed ${seed}
 done
 
-
 # whisper yes no
 for seed in "${seeds[@]}"
 do
@@ -40,3 +37,6 @@ do
   done
   python3.10 whisper/multi_task_binary_label/main_yes_no.py --seed ${seed}
 done
+
+# create tables
+python3.10 create_tables.py

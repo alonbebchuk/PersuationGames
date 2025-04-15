@@ -1,0 +1,97 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.misc,calc,fit}
+\usepackage{xcolor}
+
+\begin{document}
+
+\definecolor{whisperblue}{RGB}{77,119,255}
+\definecolor{lightgray}{RGB}{230,230,230}
+\definecolor{promptgreen}{RGB}{230,255,230}
+
+\begin{tikzpicture}[
+    box/.style={draw, thick, text width=5cm, minimum height=1.5cm, align=center, rounded corners},
+    promptBox/.style={draw, thick, text width=6.5cm, minimum height=1.8cm, align=center, rounded corners},
+    arrow/.style={draw, ->, >=stealth, very thick},
+    moduleBox/.style={draw, thick, fill=lightgray, text width=2.5cm, minimum height=1cm, align=center, rounded corners},
+    whisperBox/.style={draw, thick, fill=whisperblue!40, text width=4cm, minimum height=1.5cm, align=center, rounded corners},
+    logitsBox/.style={draw, thick, fill=lightgray, text width=5cm, minimum height=1cm, align=center, rounded corners},
+    noteBox/.style={draw, thick, fill=lightgray!50, text width=5cm, minimum height=1cm, align=center, rounded corners},
+    ]
+    
+    % Title
+    \node[font=\large\bfseries] (title) at (9,6) {Whisper Yes/No Strategy Classification Models};
+    
+    % Audio input
+    \node[box, fill=lightgray] (audio) at (4.5,4) {
+        \textbf{Audio Input} \\
+        \small Raw audio of player's utterance
+    };
+    
+    % Strategy Prompt Prefix
+    \node[promptBox, fill=promptgreen, below=0.5cm of audio] (prompt_prefix) {
+        \textbf{Strategy Prompt Prefix} \\
+        \small Task: Determine whether the last utterance falls under the \{strategy\} strategy. \\
+        \small Strategy Definition: \{strategy\} - \{strategy definition\}.
+    };
+    
+    % Previous Utterances
+    \node[box, fill=lightgray, below=0.5cm of prompt_prefix] (prev) {
+        \textbf{Previous Utterances} \\
+        \small Previous Utterances: \\
+        \small Utterance -\textgreater{} \{prev utterance 1\} \\
+        \small ... \\
+        \small Utterance -\textgreater{} \{prev utterance 5\}
+    };
+    
+    % Target Utterance
+    \node[box, fill=lightgray, below=0.5cm of prev] (target) {
+        \textbf{Last Utterance} \\
+        \small Last Utterance: \\
+        \small Utterance -\textgreater{} \{utterance\}
+    };
+    
+    % Strategy Prompt Suffix
+    \node[promptBox, fill=promptgreen, below=0.5cm of target] (prompt_suffix) {
+        \textbf{Strategy Prompt Suffix} \\
+        \small Strategy: \{strategy\} \\
+        \small Does the last utterance fall under this strategy? \\
+        \small Answer:
+    };
+    
+    % Feature Extraction
+    \node[moduleBox, right=1.5cm of audio] (featurize) {Feature Extractor};
+    
+    % Tokenization
+    \node[moduleBox, right=1.5cm of prev] (tokenize) {Tokenizer};
+    
+    % Whisper Model
+    \node[whisperBox, right=1.5cm of featurize] (whisper) {Whisper-small \\(244M parameters)};
+    
+    % Last Token Logits (final output)
+    \node[logitsBox, right=1.5cm of whisper] (classify) {Last Token's Normalized\\Yes/No Logits};
+    
+    % Arrows
+    \draw[arrow] (audio) -- (featurize);
+    \draw[arrow] (prompt_prefix) -- (tokenize);
+    \draw[arrow] (prev) -- (tokenize);
+    \draw[arrow] (target) -- (tokenize);
+    \draw[arrow] (prompt_suffix) -- (tokenize);
+    \draw[arrow] (featurize) -- (whisper);
+    \draw[arrow] (tokenize) -- (whisper);
+    \draw[arrow] (whisper) -- (classify);
+    
+    % Model Variants - ST above MTBL
+    \node[noteBox, below=1.0cm of whisper] (st_note) {
+        \textbf{Single-Task (ST) Variant:} \\
+        \small A separate model is trained for each strategy
+    };
+    
+    \node[noteBox, below=0.3cm of st_note] (mtbl_note) {
+        \textbf{Multi-Task Binary-Label (MTBL) Variant:} \\
+        \small One unified model that handles any strategy mentioned in the prompt
+    };
+    
+\end{tikzpicture}
+
+\end{document} 

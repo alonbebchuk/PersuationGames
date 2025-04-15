@@ -34,7 +34,6 @@ def get_audio_array(filename: str) -> np.ndarray:
 
 def load_data(mode: str) -> None:
     json_path = f"{DATA_DIR}/{mode}.json"
-    # Check if the data file already exists
     if os.path.exists(json_path):
         print(f"Data file {json_path} already exists. Skipping download.")
         return
