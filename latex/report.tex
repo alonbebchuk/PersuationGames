@@ -26,7 +26,7 @@ for Social Deduction Games}
 \maketitle
 
 \begin{abstract}
-In this paper, we explore the role of audio modality in persuasion modeling within social deduction games. Building upon previous work that demonstrated the value of multimodal approaches combining text and video, we focus specifically on extracting persuasion strategies from audio data. We compare text-only BERT models with Whisper models that leverage both text and audio features. Our experiments show that Whisper-based models combining audio and text can outperform text-only models by 0.5\% on average F1 score, suggesting that audio features capture important signals for persuasion detection. Our findings indicate that much of the information gained by video modality can be explained by its audio component.
+In this paper, we explore the role of audio modality in persuasion modeling within social deduction games. Building upon previous work that demonstrated the value of multimodal approaches combining text and video, we focus specifically on extracting persuasion strategies from audio data. We compare text-only BERT models with Whisper models that leverage both text and audio features. Our experiments show that Whisper-based models combining audio and text can outperform text-only models by 0.5\% on average F1 score, suggesting that audio features capture beneficial signals for persuasion detection. Our findings indicate that much of the information gained by video modality can be explained by its audio component.
 \end{abstract}
 
 \section{Introduction}
@@ -34,14 +34,14 @@ Persuasion modeling is a critical component in understanding human communication
 
 Our research builds on the work by Lai et al. \cite{lai2022werewolf}, who introduced a multimodal dataset for modeling persuasion behaviors in social deduction games. They demonstrated that visual cues can improve persuasion strategy prediction by approximately 0.8\% on F1 score compared to text-only models. Our work addresses their call for future research to "explore the role of the audio modality in persuasion modeling and to investigate joint learning of multimodal representations for the social persuasion setting."
 
-We compare text-only models with audio-enhanced approaches, including BERT-based models and Whisper-based models that use both text and audio. Our models are designed to predict persuasion strategies such as Identity Declaration, Accusation, Interrogation, Call for Action, Defense, and Evidence. Through comprehensive experiments, we demonstrate that audio features provide valuable signals for persuasion detection and can match or even exceed the performance gains previously observed from video data.
+We compare text-only models with audio-enhanced approaches, including BERT-based models and Whisper-based models that use both text and audio. Our models are designed to predict persuasion strategies such as Identity Declaration, Accusation, Interrogation, Call for Action, Defense, and Evidence. Through comprehensive experiments, we demonstrate that audio features provide beneficial signals for persuasion detection and can achieve nearly the same performance gains as those previously observed from video data, falling short by only a small margin.
 
 \section{Related Work}
 \subsection{Persuasion Modeling}
 Research on computational modeling of persuasion has advanced significantly in recent years. Yang et al. \cite{yang2019let} and Chen and Yang \cite{chen2021advisorqagc} introduced datasets focusing on persuasion strategies in online platforms. Chawla et al. \cite{chawla2021casino} examined persuasion in simulated dialogue settings through crowdsourcing. However, these datasets predominantly consist of textual data without incorporating multimodal elements.
 
 \subsection{Multimodal Social Interaction Analysis}
-Multimodal approaches to social interaction analysis have gained traction with works like Xu et al. \cite{xu2021learning} and Li et al. \cite{li2020deep} on multimodal sentiment analysis. Bai et al. \cite{bai2021power} applied multimodal methods to predict debate outcomes from TV shows. The Ego4D Social benchmark \cite{grauman2022ego4d} includes tasks for identifying social interactions using video and audio. While these approaches incorporate multiple modalities, they typically don't focus specifically on persuasion strategies.
+Multimodal approaches to social interaction analysis have gained traction with works like Xu et al. \cite{xu2021learning} and Li et al. \cite{li2020deep} on multimodal sentiment analysis. Bai et al. \cite{bai2021power} applied multimodal methods to predict debate outcomes from TV shows. The Ego4D Social benchmark \cite{grauman2022ego4d} includes tasks for identifying social interactions using video and audio. While these approaches incorporate multiple modalities, they typically do not focus specifically on persuasion strategies.
 
 \subsection{Audio Processing for Social Interaction}
 The Whisper model \cite{radford2022robust} represents a significant advancement in audio processing, demonstrating robust speech recognition capabilities across various domains. Recent work has begun exploring Whisper's potential for social interaction understanding beyond simple transcription, though its application to persuasion modeling remains novel.
@@ -122,10 +122,10 @@ All Whisper-based models are trained on both text and audio data, where the audi
 \subsection{Evaluation Metrics}
 Following Chawla et al. \cite{chawla2021casino} and Lai et al. \cite{lai2022werewolf}, we report:
 \begin{itemize}
-    \item F1 score for each persuasion strategy
-    \item Average F1 score across all strategies
-    \item Accuracy for each persuasion strategy
-    \item Average accuracy across all strategies
+    \item F1 score for each persuasion strategy.
+    \item Average F1 score across all strategies.
+    \item Accuracy for each persuasion strategy.
+    \item Average accuracy across all strategies.
 \end{itemize}
 
 \subsection{Experimental Setup}
@@ -135,9 +135,7 @@ We use the Werewolf Among Us dataset \cite{lai2022werewolf}, which contains dial
 \begin{itemize}
     \item Context size: 5 previous utterances (following the optimal setting from Lai et al.)
     \item BERT learning rate: 3e-5
-    \item Whisper learning rate: 1e-5
-    \item Adam optimizer: $\beta_1=0.9$, $\beta_2=0.99$ for Whisper (modified from default 0.999 for stability)
-    \item Warmup steps: 200
+    \item Whisper learning rate: 1e-5, adam $\beta_2$: 0.99, and warmup steps: 200 for stability
     \item Training epochs: 10
     \item Hardware: 8 TPUs
     \item Implementation: JAX/Flax
@@ -196,21 +194,21 @@ Whisper Proj MTML & 94.2±0.1 & 81.8±0.7 & 83.6±0.3 & 92.2±0.2 & 83.5±0.2 & 
 
 \subsection{Key Findings}
 \begin{itemize}
-    \item \textbf{Audio improves persuasion detection:} The Whisper Yes-No Multi-Task Binary-Label model achieves the best performance with 70.9\% average F1 score, outperforming the best BERT model (BERT MTBL) by 0.5\%.
+    \item \textbf{Audio improves persuasion detection:} The Whisper Yes-No Multi-Task Binary-Label model achieves the best average performance with 70.9\% average F1 score and 93.1\% average accuracy, outperforming the best BERT F1 and accuracy models (BERT MTBL and BERT MTML) by 0.5\% average F1 score and 0.2\% average accuracy, respectively.
     
-    \item \textbf{Audio vs. Visual modality:} In the original paper by Lai et al., incorporating visual features improved performance by 0.8\% F1 score. Our results suggest that much of this improvement can be attributed to the audio component alone.
+    \item \textbf{Audio vs. Visual modality:} In the original paper by Lai et al., incorporating visual features improved average F1 score by 0.8\%. Our results suggest that much of this improvement can be attributed to the audio component.
     
     \item \textbf{Multi-task learning effectiveness:} Both for BERT and Whisper models, multi-task approaches generally outperform single-task models, indicating that joint learning across strategies is beneficial.
     
     \item \textbf{Strategy-specific insights:} Audio features seem particularly helpful for "Defense" strategy detection, with a 6.3\% gain in F1 score compared to the best BERT model (48.6\% vs. 44.1\%).
     
-    \item \textbf{Projection approach limitations:} The Whisper Projection models performed poorly despite using the same underlying architecture as the Yes-No models. This suggests that the generative approach (producing "yes" or "no") is more effective for this task than directly projecting the last token's representation.
+    \item \textbf{Projection approach limitations:} The Whisper Projection models performed poorly compared to the Yes-No models. This is likely because Whisper is fundamentally a generative model, and adapting it for classification with a projection layer requires significantly more training data and careful hyperparameter tuning than our experimental setup provided. The Yes-No approach better leverages Whisper's generative capabilities without requiring extensive architectural modifications.
 \end{itemize}
 
 \subsection{Analysis}
-The superior performance of the Whisper Yes-No models indicates that audio features capture important cues for persuasion detection. These cues might include tone, emphasis, pauses, and other paralinguistic features that are absent in text-only representations. The particularly strong improvement for the "Defense" strategy suggests that audio features may be especially relevant when people are defending themselves or others, as emotional cues in voice can signal credibility and conviction.
+The improved performance of the Whisper Yes-No models indicates that audio features capture important cues for persuasion detection. These cues might include tone, emphasis, pauses, and other paralinguistic features that are absent in text-only representations. The particularly strong improvement for the "Defense" strategy suggests that audio features may be especially relevant when people are defending themselves or others, as emotional cues in voice can signal credibility and conviction.
 
-The poor performance of the Whisper Projection models highlights the challenge of adapting pre-trained speech recognition models for classification tasks. While the Yes-No approach leverages the model's generative capabilities, the Projection approach requires learning new projection parameters, which may be harder to optimize.
+The poor performance of the Whisper Projection models highlights the challenges in adapting generative pre-trained models for classification tasks. Whisper was primarily trained for speech recognition in a generative manner, and repurposing it for classification through projection layers requires retraining parts of the model architecture. In contrast, the Yes-No approach fits more naturally with Whisper's generative training objective, as it simply requires the model to generate a specific token ("yes" or "no"). Future work could explore more extensive pretraining and optimization strategies for the projection-based approaches.
 
 \section{Future Work}
 Future research could explore several promising directions:
@@ -224,7 +222,7 @@ The Whisper Projection models performed poorly, suggesting room for improvement 
 \end{itemize}
 
 \subsection{Fine-grained Audio Feature Analysis}
-A detailed analysis of which audio features contribute most to persuasion strategy detection could provide insights into the mechanism behind the model's success. This might involve:
+A detailed analysis of which audio features contribute most to persuasion strategy detection could provide insights into the mechanism behind the performance of such models. This might involve:
 \begin{itemize}
     \item Ablation studies on different audio features (pitch, energy, speech rate)
     \item Attention visualization to identify when the model attends to audio versus text
@@ -246,16 +244,14 @@ Testing the audio-enhanced persuasion models on other domains could help underst
     
     \item \textbf{Hyperparameter tuning:} The Whisper Projection models might perform better with extensive hyperparameter tuning, which was beyond the scope of this study.
     
-    \item \textbf{Computational requirements:} Training Whisper-based models requires significant computational resources, limiting accessibility.
-    
-    \item \textbf{English language focus:} The dataset and models are focused on English conversations, potentially limiting cross-cultural applicability.
+    \item \textbf{Computational requirements:} Training Whisper-based models requires significant computational resources, making thorough hyperparameter optimization and architecture search prohibitively expensive. This limits our ability to fully explore potential modifications that might improve performance.
 \end{itemize}
 
 \subsection{Broader Impact}
 \begin{itemize}
-    \item \textbf{Positive applications:} Models that detect persuasion strategies from multimodal inputs could enhance communication training, assist negotiation coaching, and improve conversational agents' naturalness.
+    \item \textbf{Positive applications:} Models that detect persuasion strategies from multimodal inputs could enhance communication training, assist negotiation coaching, and improve conversational agents' authenticity.
     
-    \item \textbf{Potential risks:} The same technology could be misused for manipulation detection avoidance, targeted persuasion, or surveillance. Careful ethical guidelines should accompany deployment of such models.
+    \item \textbf{Potential risks:} The same technology could be misused for manipulation detection avoidance, targeted persuasion, and more. Careful ethical guidelines should accompany deployment of such models.
     
     \item \textbf{Privacy considerations:} Audio analysis raises privacy concerns beyond text analysis, as voice contains biometric information and potentially sensitive paralinguistic cues.
     
