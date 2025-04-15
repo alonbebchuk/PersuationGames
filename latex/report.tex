@@ -84,15 +84,15 @@ Figure \ref{fig:bert_st_and_mtbl} shows the architecture of the BERT Single-Task
 \begin{itemize}
     \item \textbf{Whisper Yes-No (YN) Models:} We fine-tune the Whisper-small model to generate a "yes" or "no" response to indicate whether the target utterance exhibits the strategy. We implement two variants:
     \begin{itemize}
-        \item \textbf{Single-Task (YN ST):} A separate model for each strategy
-        \item \textbf{Multi-Task Binary-Label (YN MTBL):} A single model for all strategies, where the strategy is specified in the prompt
+        \item \textbf{Single-Task (YN ST):} A separate model for each strategy.
+        \item \textbf{Multi-Task Binary-Label (YN MTBL):} A single model for all strategies, where the strategy is specified in the prompt.
     \end{itemize}
     
     \item \textbf{Whisper Projection Models:} We extend the Whisper-small model with a projection layer that transforms the last token's logits, followed by a dropout layer and a classification head. We implement three variants:
     \begin{itemize}
-        \item \textbf{Single-Task (Proj ST):} A separate model for each strategy
-        \item \textbf{Multi-Task Binary-Label (Proj MTBL):} A single model for all strategies, where the strategy is specified in the prompt
-        \item \textbf{Multi-Task Multi-Label (Proj MTML):} A single model that predicts all strategies simultaneously without strategy-specific prompting
+        \item \textbf{Single-Task (Proj ST):} A separate model for each strategy.
+        \item \textbf{Multi-Task Binary-Label (Proj MTBL):} A single model for all strategies, where the strategy is specified in the prompt.
+        \item \textbf{Multi-Task Multi-Label (Proj MTML):} A single model that predicts all strategies simultaneously without strategy-specific prompting.
     \end{itemize}
 \end{itemize}
 
@@ -133,12 +133,12 @@ We use the Werewolf Among Us dataset \cite{lai2022werewolf}, which contains dial
 
 \subsubsection{Training Configuration}
 \begin{itemize}
-    \item Context size: 5 previous utterances (following the optimal setting from Lai et al.)
-    \item BERT learning rate: 3e-5
-    \item Whisper learning rate: 1e-5, adam $\beta_2$: 0.99, and warmup steps: 200 for stability
-    \item Training epochs: 10
-    \item Hardware: 8 TPUs
-    \item Implementation: JAX/Flax
+    \item Context size: 5 previous utterances (following the optimal setting from Lai et al.).
+    \item BERT learning rate: 3e-5.
+    \item Whisper learning rate: 1e-5, adam $\beta_2$: 0.99, and warmup steps: 200 for stability.
+    \item Training epochs: 10.
+    \item Hardware: 8 TPUs.
+    \item Implementation: JAX/Flax.
 \end{itemize}
 
 For each model configuration, we train with three different random seeds (12, 42, 87). We evaluate on the validation set every 2 epochs and select the checkpoint with the highest F1 score for final evaluation on the test set.
@@ -146,12 +146,13 @@ For each model configuration, we train with three different random seeds (12, 42
 \section{Results and Discussion}
 
 \subsection{Performance Comparison}
-Tables 1 and 2 present the F1 scores and accuracy for all models, respectively, across the six persuasion strategies and on average.
+Tables \ref{tab:f1_scores} and \ref{tab:accuracy} present the F1 scores and accuracy for all models, respectively, across the six persuasion strategies and on average.
 
 \begin{table}[ht]
 \centering
 \small
 \caption{F1 scores (\%) for each persuasion strategy and average across all strategies}
+\label{tab:f1_scores}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lccccccc@{}}
 \toprule
@@ -174,6 +175,7 @@ Whisper Proj MTML & 34.0±1.2 & 29.2±1.5 & 51.0±1.5 & 28.3±2.1 & 24.2±1.3 & 
 \centering
 \small
 \caption{Accuracy (\%) for each persuasion strategy and average across all strategies}
+\label{tab:accuracy}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lccccccc@{}}
 \toprule
@@ -216,25 +218,25 @@ Future research could explore several promising directions:
 \subsection{Improved Audio Representation Learning}
 The Whisper Projection models performed poorly, suggesting room for improvement in how audio representations are used for classification tasks. Future work could investigate:
 \begin{itemize}
-    \item Pre-training specialized audio encoders on persuasion-specific tasks
-    \item Exploring alternative fusion mechanisms between audio and text features
-    \item Using contrastive learning to align audio and text representations in a shared embedding space
+    \item Pre-training specialized audio encoders on persuasion-specific tasks.
+    \item Exploring alternative fusion mechanisms between audio and text features.
+    \item Using contrastive learning to align audio and text representations in a shared embedding space.
 \end{itemize}
 
 \subsection{Fine-grained Audio Feature Analysis}
 A detailed analysis of which audio features contribute most to persuasion strategy detection could provide insights into the mechanism behind the performance of such models. This might involve:
 \begin{itemize}
-    \item Ablation studies on different audio features (pitch, energy, speech rate)
-    \item Attention visualization to identify when the model attends to audio versus text
-    \item Probing experiments to understand what persuasion-relevant information is encoded in different layers
+    \item Ablation studies on different audio features (pitch, energy, speech rate).
+    \item Attention visualization to identify when the model attends to audio versus text.
+    \item Probing experiments to understand what persuasion-relevant information is encoded in different layers.
 \end{itemize}
 
 \subsection{Cross-domain Application}
 Testing the audio-enhanced persuasion models on other domains could help understand their generalizability:
 \begin{itemize}
-    \item Political debates
-    \item Sales negotiations
-    \item Therapeutic conversations
+    \item Political debates.
+    \item Sales negotiations.
+    \item Therapeutic conversations.
 \end{itemize}
 
 \section{Limitations \& Broader Impact}
