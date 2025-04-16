@@ -4,6 +4,7 @@
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{booktabs}
+\usepackage[hyphens]{url}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{listings}
@@ -18,12 +19,18 @@
 
 \title{Exploring the Audio Modality in Persuasion Modeling\\
 for Social Deduction Games}
+
 \author{Alon Bebchuk, 314023516 \and Ohad Rubin, 203184155}
 \date{April 15, 2025}
 
 \begin{document}
 
 \maketitle
+
+\begin{center}
+\small{Based on ``Werewolf Among Us: A Multimodal Dataset for Modeling Persuasion Behaviors in Social Deduction Games''}\\
+\small{\url{https://arxiv.org/pdf/2212.08279}}
+\end{center}
 
 \begin{abstract}
 In this paper, we explore the role of audio modality in persuasion modeling within social deduction games. Building upon previous work that demonstrated the value of multimodal approaches combining text and video, we focus specifically on extracting persuasion strategies from audio data. We compare text-only BERT models with Whisper models that leverage both text and audio features. Our experiments show that Whisper-based models combining audio and text can outperform text-only models by 0.5\% on average F1 score, suggesting that audio features capture beneficial signals for persuasion detection. Our findings indicate that much of the information gained by video modality can be explained by its audio component.
@@ -64,21 +71,7 @@ Our models fall into two main categories: BERT-based text-only models and Whispe
     \item \textbf{BERT Multi-Task Multi-Label (MTML):} We train a single model to predict all six persuasion strategies simultaneously. The input is only the previous utterances and target utterance, without any strategy-specific prompt.
 \end{itemize}
 
-Figure \ref{fig:bert_st_and_mtbl} shows the architecture of the BERT Single-Task and Multi-Task Binary-Label models, while Figure \ref{fig:bert_mtml} shows the Multi-Task Multi-Label variant.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{figures/pdf/bert_st_and_mtbl.pdf}
-    \caption{Architecture of the BERT Single-Task (ST) and Multi-Task Binary-Label (MTBL) models. The ST variant uses a separate model for each of the six persuasion strategies, while the MTBL variant uses a single model that handles all strategies based on which one is specified in the prompt.}
-    \label{fig:bert_st_and_mtbl}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{figures/pdf/bert_mtml.pdf}
-    \caption{Architecture of the BERT Multi-Task Multi-Label (MTML) model. A single model simultaneously predicts all six strategies without strategy-specific prompting.}
-    \label{fig:bert_mtml}
-\end{figure}
+The architectural details of these models are shown in Appendix A (Figures \ref{fig:app_bert_st_and_mtbl} and \ref{fig:app_bert_mtml}).
 
 \subsubsection{Whisper-based Models}
 \begin{itemize}
@@ -96,28 +89,7 @@ Figure \ref{fig:bert_st_and_mtbl} shows the architecture of the BERT Single-Task
     \end{itemize}
 \end{itemize}
 
-All Whisper-based models are trained on both text and audio data, where the audio input corresponds to the utterances in the dialogue context. Figures \ref{fig:whisper_yn_st_and_mtbl}, \ref{fig:whisper_proj_st_and_mtbl}, and \ref{fig:whisper_proj_mtml} show the architectures of these models.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{figures/pdf/whisper_yn_st_and_mtbl.pdf}
-    \caption{Architecture of the Whisper Yes-No Single-Task (YN ST) and Multi-Task Binary-Label (YN MTBL) models. These models process both audio and text inputs and use the last token's normalized yes/no logits to predict strategy presence.}
-    \label{fig:whisper_yn_st_and_mtbl}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{figures/pdf/whisper_proj_st_and_mtbl.pdf}
-    \caption{Architecture of the Whisper Projection Single-Task (Proj ST) and Multi-Task Binary-Label (Proj MTBL) models. These models extend Whisper with additional layers: a projection layer operating on the last token's logits, a dropout layer, and a binary classification head.}
-    \label{fig:whisper_proj_st_and_mtbl}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{figures/pdf/whisper_proj_mtml.pdf}
-    \caption{Architecture of the Whisper Projection Multi-Task Multi-Label (Proj MTML) model. This model simultaneously predicts all strategies without strategy-specific prompting, using a multi-label classification head.}
-    \label{fig:whisper_proj_mtml}
-\end{figure}
+All Whisper-based models are trained on both text and audio data, where the audio input corresponds to the utterances in the dialogue context. Detailed architecture diagrams for all Whisper-based models can be found in Appendix A (Figures \ref{fig:app_whisper_yn_st_and_mtbl}, \ref{fig:app_whisper_proj_st_and_mtbl}, and \ref{fig:app_whisper_proj_mtml}).
 
 \subsection{Evaluation Metrics}
 Following Chawla et al. \cite{chawla2021casino} and Lai et al. \cite{lai2022werewolf}, we report:
@@ -206,6 +178,21 @@ Whisper Proj MTML & 94.2±0.1 & 81.8±0.7 & 83.6±0.3 & 92.2±0.2 & 83.5±0.2 & 
     
     \item \textbf{Projection approach limitations:} The Whisper Projection models performed poorly compared to the Yes-No models. This is likely because Whisper is fundamentally a generative model, and adapting it for classification with a projection layer requires significantly more training data and careful hyperparameter tuning than our experimental setup provided. The Yes-No approach better leverages Whisper's generative capabilities without requiring extensive architectural modifications.
 \end{itemize}
+
+\subsection{Training Convergence Analysis}
+We tracked the training progression of all models using Weights \& Biases (wandb), which allowed us to monitor key metrics such as training loss, evaluation loss, evaluation F1 score, and evaluation accuracy throughout the training process. Figure \ref{fig:bert_mtbl} shows the convergence graph for our best-performing BERT model (MTBL), while Figure \ref{fig:whisper_yn_mtbl} shows the same for our best-performing Whisper model (YN MTBL).
+
+The convergence graphs reveal several interesting patterns:
+
+\begin{itemize}
+    \item The Whisper Yes-No models generally reached optimal performance more quickly than their BERT counterparts, suggesting that incorporating audio features may help the model converge faster.
+    
+    \item For difficult strategies like "Defense" and "Evidence," the Whisper-based models showed more stable learning curves, with fewer fluctuations in evaluation metrics during training compared to text-only BERT models.
+    
+    \item The Whisper Projection models exhibited unstable training behavior, with highly fluctuating evaluation metrics, which aligns with our earlier observation about their poor overall performance.
+\end{itemize}
+
+A comprehensive collection of convergence graphs for all model variants and strategies is provided in Appendix C.
 
 \subsection{Analysis}
 The improved performance of the Whisper Yes-No models indicates that audio features capture important cues for persuasion detection. These cues might include tone, emphasis, pauses, and other paralinguistic features that are absent in text-only representations. The particularly strong improvement for the "Defense" strategy suggests that audio features may be especially relevant when people are defending themselves or others, as emotional cues in voice can signal credibility and conviction.
@@ -298,5 +285,238 @@ Radford, A., Kim, J.W., Xu, T., Brockman, G., McLeavey, C., Sutskever, I. (2022)
 Chittaranjan, G., Hung, H. (2010). Are you a werewolf? detecting deceptive roles and outcomes in a conversational role-playing game. In IEEE International Conference on Acoustics, Speech and Signal Processing.
 
 \end{thebibliography}
+
+\appendix
+\section{Model Architectures}
+This appendix contains detailed figures of the model architectures used in our experiments.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pdf/bert_st_and_mtbl.pdf}
+    \caption{Architecture of the BERT Single-Task (ST) and Multi-Task Binary-Label (MTBL) models. The ST variant uses a separate model for each of the six persuasion strategies, while the MTBL variant uses a single model that handles all strategies based on which one is specified in the prompt.}
+    \label{fig:app_bert_st_and_mtbl}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pdf/bert_mtml.pdf}
+    \caption{Architecture of the BERT Multi-Task Multi-Label (MTML) model. A single model simultaneously predicts all six strategies without strategy-specific prompting.}
+    \label{fig:app_bert_mtml}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pdf/whisper_yn_st_and_mtbl.pdf}
+    \caption{Architecture of the Whisper Yes-No Single-Task (YN ST) and Multi-Task Binary-Label (YN MTBL) models. These models process both audio and text inputs and use the last token's normalized yes/no logits to predict strategy presence.}
+    \label{fig:app_whisper_yn_st_and_mtbl}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pdf/whisper_proj_st_and_mtbl.pdf}
+    \caption{Architecture of the Whisper Projection Single-Task (Proj ST) and Multi-Task Binary-Label (Proj MTBL) models. These models extend Whisper with additional layers: a projection layer operating on the last token's logits, a dropout layer, and a binary classification head.}
+    \label{fig:app_whisper_proj_st_and_mtbl}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/pdf/whisper_proj_mtml.pdf}
+    \caption{Architecture of the Whisper Projection Multi-Task Multi-Label (Proj MTML) model. This model simultaneously predicts all strategies without strategy-specific prompting, using a multi-label classification head.}
+    \label{fig:app_whisper_proj_mtml}
+\end{figure}
+
+\section{Code and Resources}
+This section provides information about the code repository, dataset, and other resources used in this research.
+
+\subsection{Code Repository}
+Our implementation is available on GitHub at \url{https://github.com/alonbebchuk/PersuationGames}. The repository contains all the code necessary to reproduce our experiments, including the BERT and Whisper model implementations, training scripts, and evaluation code.
+
+\subsection{Dataset}
+We used the Werewolf Among Us dataset, which is available on Hugging Face at \url{https://huggingface.co/datasets/bolinlai/Werewolf-Among-Us}. This dataset contains multimodal recordings of social deduction games with annotations for persuasion strategies, allowing us to train and evaluate our models on real-world persuasion behaviors.
+
+\subsection{Implementation Details}
+The implementation is our original work, with inspiration, ideas, and some code snippets adapted from:
+\begin{itemize}
+    \item The original Werewolf Among Us GitHub repository (\href{https://github.com/SALT-NLP/PersuationGames}{github.com/SALT-NLP/PersuationGames}), from which we forked our project.
+    \item Hugging Face Transformers Flax examples (\href{https://github.com/huggingface/transformers/tree/main/examples/flax}{github.com/huggingface/transformers/examples/flax}), which provided templates for implementing efficient JAX/Flax-based models.
+\end{itemize}
+
+We used Weights \& Biases (wandb) for experiment tracking, visualization of learning metrics, and telemetry throughout our training process, which helped us monitor model performance and compare different approaches.
+
+\section{Convergence Graphs}
+This section presents the training convergence graphs for our models, captured using Weights \& Biases. Each graph shows the progression of training loss, evaluation loss, evaluation F1 score, and evaluation accuracy throughout the training process.
+
+\subsection{BERT Models}
+
+\subsubsection{Multi-Task Models}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_mtbl.png}
+    \caption{Convergence graph for BERT Multi-Task Binary-Label model.}
+    \label{fig:bert_mtbl}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_mtml.png}
+    \caption{Convergence graph for BERT Multi-Task Multi-Label model.}
+    \label{fig:bert_mtml}
+\end{figure}
+
+\subsubsection{Single-Task Models by Strategy}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_identity_declaration.png}
+    \caption{Convergence graph for BERT Single-Task Identity Declaration model.}
+    \label{fig:bert_identity_declaration}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_accusation.png}
+    \caption{Convergence graph for BERT Single-Task Accusation model.}
+    \label{fig:bert_accusation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_interrogation.png}
+    \caption{Convergence graph for BERT Single-Task Interrogation model.}
+    \label{fig:bert_interrogation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_call_for_action.png}
+    \caption{Convergence graph for BERT Single-Task Call for Action model.}
+    \label{fig:bert_call_for_action}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_defense.png}
+    \caption{Convergence graph for BERT Single-Task Defense model.}
+    \label{fig:bert_defense}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/bert_evidence.png}
+    \caption{Convergence graph for BERT Single-Task Evidence model.}
+    \label{fig:bert_evidence}
+\end{figure}
+
+\subsection{Whisper Yes-No Models}
+
+\subsubsection{Multi-Task Model}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_mtbl.png}
+    \caption{Convergence graph for Whisper Yes-No Multi-Task Binary-Label model.}
+    \label{fig:whisper_yn_mtbl}
+\end{figure}
+
+\subsubsection{Single-Task Models by Strategy}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_identity_declaration.png}
+    \caption{Convergence graph for Whisper Yes-No Single-Task Identity Declaration model.}
+    \label{fig:whisper_yn_identity_declaration}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_accusation.png}
+    \caption{Convergence graph for Whisper Yes-No Single-Task Accusation model.}
+    \label{fig:whisper_yn_accusation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_interrogation.png}
+    \caption{Convergence graph for Whisper Yes-No Single-Task Interrogation model.}
+    \label{fig:whisper_yn_interrogation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_call_for_action.png}
+    \caption{Convergence graph for Whisper Yes-No Single-Task Call for Action model.}
+    \label{fig:whisper_yn_call_for_action}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_defense.png}
+    \caption{Convergence graph for Whisper Yes-No Single-Task Defense model.}
+    \label{fig:whisper_yn_defense}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_yn_evidence.png}
+    \caption{Convergence graph for Whisper Yes-No Single-Task Evidence model.}
+    \label{fig:whisper_yn_evidence}
+\end{figure}
+
+\subsection{Whisper Projection Models}
+
+\subsubsection{Multi-Task Models}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_mtbl.png}
+    \caption{Convergence graph for Whisper Projection Multi-Task Binary-Label model.}
+    \label{fig:whisper_proj_mtbl}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_mtml.png}
+    \caption{Convergence graph for Whisper Projection Multi-Task Multi-Label model.}
+    \label{fig:whisper_proj_mtml}
+\end{figure}
+
+\subsubsection{Single-Task Models by Strategy}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_identity_declaration.png}
+    \caption{Convergence graph for Whisper Projection Single-Task Identity Declaration model.}
+    \label{fig:whisper_proj_identity_declaration}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_accusation.png}
+    \caption{Convergence graph for Whisper Projection Single-Task Accusation model.}
+    \label{fig:whisper_proj_accusation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_interrogation.png}
+    \caption{Convergence graph for Whisper Projection Single-Task Interrogation model.}
+    \label{fig:whisper_proj_interrogation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_call_for_action.png}
+    \caption{Convergence graph for Whisper Projection Single-Task Call for Action model.}
+    \label{fig:whisper_proj_call_for_action}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_defense.png}
+    \caption{Convergence graph for Whisper Projection Single-Task Defense model.}
+    \label{fig:whisper_proj_defense}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{convergence_graphs/whisper_proj_evidence.png}
+    \caption{Convergence graph for Whisper Projection Single-Task Evidence model.}
+    \label{fig:whisper_proj_evidence}
+\end{figure}
 
 \end{document} 
