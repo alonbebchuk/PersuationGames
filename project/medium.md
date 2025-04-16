@@ -1,8 +1,8 @@
 # Exploring the Audio Modality in Persuasion Modeling for Social Deduction Games
 
-*About the authors: Alon Bebchuk (pursuing MsC, Tel Aviv University) and Ohad Rubin (pursuing Doctorate, Tel Aviv University) final project for course "Advanced Topics in Audio Processing using Deep Learning", Tel Aviv University, Lecturer Dr. Tal Rosenwein.* 
+*About the authors: Alon Bebchuk (pursuing MsC, Tel Aviv University) and Ohad Rubin (pursuing Doctorate, Tel Aviv University).*
 
-*Tags: #MachineLearning #NLP #AudioProcessing #PersuasionModeling #SocialDeductionGames #AI #DeepLearning #BERT #Whisper #Multimodal*
+*Final project for course "Advanced Topics in Audio Processing using Deep Learning", Tel Aviv University, Lecturer Dr. Tal Rosenwein.*
 
 ## Introduction
 
