@@ -6,7 +6,7 @@
 
 ## Introduction
 
-When we play social deduction games like "Werewolf" or "Among Us," persuasion plays a crucial role in winning. Whether you're a werewolf trying to convince others of your innocence or a villager trying to identify the werewolves, how you communicate can determine the outcome. But what exactly makes someone persuasive in these contexts?
+When we play social deduction games like "Werewolf", persuasion plays a crucial role in winning. Whether you're a werewolf trying to convince others of your innocence or a villager trying to identify the werewolves, how you communicate can determine the outcome. But what exactly makes someone persuasive in these contexts?
 
 Previous research has shown that combining text analysis with visual cues can improve our ability to detect persuasion strategies. But what about the audio component? How much information is carried in **how** something is said, beyond just the words themselves?
 
@@ -47,7 +47,7 @@ Let's look at the key model architectures we implemented:
 
 ### BERT Multi-Task Binary-Label
 
-![BERT MTBL Architecture](latex/figures/png/bert_st_and_mtbl.png)
+![BERT MTBL Architecture](figures/png/bert_st_and_mtbl.png)
 
 This architecture uses BERT as the backbone and takes as input:
 1. A prompt specifying the strategy definition
@@ -60,7 +60,7 @@ For implementation details, we used the Hugging Face `FlaxBertForSequenceClassif
 
 ### Whisper Yes-No Model
 
-![Whisper YN Architecture](latex/figures/png/whisper_yn_st_and_mtbl.png)
+![Whisper YN Architecture](figures/png/whisper_yn_st_and_mtbl.png)
 
 This model uses Whisper's audio processing capabilities. It takes:
 1. Audio features from the conversation
@@ -73,7 +73,7 @@ The implementation leverages the `FlaxWhisperForConditionalGeneration` model fro
 
 ### Whisper Projection Model
 
-![Whisper Projection Architecture](latex/figures/png/whisper_proj_st_and_mtbl.png)
+![Whisper Projection Architecture](figures/png/whisper_proj_st_and_mtbl.png)
 
 The Whisper Projection model takes a different approach to leveraging Whisper's capabilities for classification tasks. Rather than fine-tuning the model to generate yes/no responses, we:
 
@@ -86,7 +86,7 @@ This approach aims to leverage Whisper's pre-trained audio understanding while a
 
 For the Multi-Task Multi-Label variant, we used a similar architecture but with a multi-label classification head that simultaneously predicts all six persuasion strategies. This version is particularly interesting as it doesn't rely on strategy-specific prompting, instead learning to identify all strategies from the same input representation.
 
-![Whisper Projection MTML Architecture](latex/figures/png/whisper_proj_mtml.png)
+![Whisper Projection MTML Architecture](figures/png/whisper_proj_mtml.png)
 
 Despite its elegant design, the Projection approach performed significantly worse than the Yes-No approach in our experiments. This suggests that adapting generative models for classification through architectural modifications is more challenging than leveraging their existing generative capabilities.
 
@@ -145,15 +145,15 @@ The Whisper Projection models, despite their more direct adaptation for classifi
 
 The convergence graphs revealed interesting patterns:
 
-![BERT MTBL Convergence](latex/convergence_graphs/bert_mtbl.png)
+![BERT MTBL Convergence](convergence_graphs/bert_mtbl.png)
 
-![Whisper YN MTBL Convergence](latex/convergence_graphs/whisper_yn_mtbl.png)
+![Whisper YN MTBL Convergence](convergence_graphs/whisper_yn_mtbl.png)
 
 Looking at the convergence graphs for "Defense" strategy specifically:
 
-![BERT Defense Convergence](latex/convergence_graphs/bert_defense.png)
+![BERT Defense Convergence](convergence_graphs/bert_defense.png)
 
-![Whisper YN Defense Convergence](latex/convergence_graphs/whisper_yn_defense.png)
+![Whisper YN Defense Convergence](convergence_graphs/whisper_yn_defense.png)
 
 Observations:
 - Whisper Yes-No models generally reached optimal performance more quickly than BERT models
