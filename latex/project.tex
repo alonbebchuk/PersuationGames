@@ -21,7 +21,7 @@
 for Social Deduction Games}
 
 \author{Alon Bebchuk, 314023516 \and Ohad Rubin, 203184155}
-\date{April 15, 2025}
+\date{April 16, 2025}
 
 \begin{document}
 
@@ -292,35 +292,35 @@ This appendix contains detailed figures of the model architectures used in our e
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/pdf/bert_st_and_mtbl.pdf}
+    \includegraphics[width=\textwidth]{figures/png/bert_st_and_mtbl.png}
     \caption{Architecture of the BERT Single-Task (ST) and Multi-Task Binary-Label (MTBL) models. The ST variant uses a separate model for each of the six persuasion strategies, while the MTBL variant uses a single model that handles all strategies based on which one is specified in the prompt.}
     \label{fig:app_bert_st_and_mtbl}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/pdf/bert_mtml.pdf}
+    \includegraphics[width=\textwidth]{figures/png/bert_mtml.png}
     \caption{Architecture of the BERT Multi-Task Multi-Label (MTML) model. A single model simultaneously predicts all six strategies without strategy-specific prompting.}
     \label{fig:app_bert_mtml}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/pdf/whisper_yn_st_and_mtbl.pdf}
+    \includegraphics[width=\textwidth]{figures/png/whisper_yn_st_and_mtbl.png}
     \caption{Architecture of the Whisper Yes-No Single-Task (YN ST) and Multi-Task Binary-Label (YN MTBL) models. These models process both audio and text inputs and use the last token's normalized yes/no logits to predict strategy presence.}
     \label{fig:app_whisper_yn_st_and_mtbl}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/pdf/whisper_proj_st_and_mtbl.pdf}
+    \includegraphics[width=\textwidth]{figures/png/whisper_proj_st_and_mtbl.png}
     \caption{Architecture of the Whisper Projection Single-Task (Proj ST) and Multi-Task Binary-Label (Proj MTBL) models. These models extend Whisper with additional layers: a projection layer operating on the last token's logits, a dropout layer, and a binary classification head.}
     \label{fig:app_whisper_proj_st_and_mtbl}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/pdf/whisper_proj_mtml.pdf}
+    \includegraphics[width=\textwidth]{figures/png/whisper_proj_mtml.png}
     \caption{Architecture of the Whisper Projection Multi-Task Multi-Label (Proj MTML) model. This model simultaneously predicts all strategies without strategy-specific prompting, using a multi-label classification head.}
     \label{fig:app_whisper_proj_mtml}
 \end{figure}
