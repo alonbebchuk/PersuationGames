@@ -29,7 +29,7 @@ for Social Deduction Games}
 
 \begin{center}
 \small{Based on ``Werewolf Among Us: A Multimodal Dataset for Modeling Persuasion Behaviors in Social Deduction Games''}\\
-\small{\url{https://arxiv.org/pdf/2212.08279}}
+\small{\url{https://aclanthology.org/2023.findings-acl.411.pdf}}
 \end{center}
 
 \begin{abstract}
@@ -255,7 +255,7 @@ As noted by Lai et al., persuasion skills can be used for both beneficial and ha
 \begin{thebibliography}{10}
 
 \bibitem{lai2022werewolf}
-Lai, B., Liu, Z., Tong, M., Zhou, Y., Yu, Z., Wang, W.Y. (2022). Werewolf Among Us: A Multimodal Dataset for Modeling Persuasion Behaviors in Social Deduction Games. arXiv preprint arXiv:2212.08279.
+Bolin Lai, Hongxin Zhang, Miao Liu, Aryan Pariani, Fiona Ryan, Wenqi Jia, Shirley Anugrah Hayati, James Rehg, and Diyi Yang. 2023. Werewolf Among Us: Multimodal Resources for Modeling Persuasion Behaviors in Social Deduction Games. In Findings of the Association for Computational Linguistics: ACL 2023, pages 6570–6588, Toronto, Canada. Association for Computational Linguistics.
 
 \bibitem{chawla2021casino}
 Chawla, P., Young, D., Jiang, A.X., Zhu, J. (2021). CASINO: Modeling Persuasion Strategies in Peer-to-Peer Interactions. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing.
@@ -337,11 +337,14 @@ We used the Werewolf Among Us dataset, which is available on Hugging Face at \ur
 \subsection{Implementation Details}
 The implementation is our original work, with inspiration, ideas, and some code snippets adapted from:
 \begin{itemize}
-    \item The original Werewolf Among Us GitHub repository (\href{https://github.com/SALT-NLP/PersuationGames}{github.com/SALT-NLP/PersuationGames}), from which we forked our project.
-    \item Hugging Face Transformers Flax examples (\href{https://github.com/huggingface/transformers/tree/main/examples/flax}{github.com/huggingface/transformers/examples/flax}), which provided templates for implementing efficient JAX/Flax-based models.
+    \item The original Werewolf Among Us GitHub repository\\
+    \url{https://github.com/SALT-NLP/PersuationGames}, from which we forked our project.
+    \item Hugging Face Transformers Flax examples\\
+    \url{https://github.com/huggingface/transformers/tree/main/examples/flax},\\
+    which provided templates for implementing efficient JAX/Flax-based models.
 \end{itemize}
 
-We used Weights \& Biases (wandb) for experiment tracking, visualization of learning metrics, and telemetry throughout our training process, which helped us monitor model performance and compare different approaches.
+We used Weights \& Biases (wandb) for experiment tracking, visualization of learning metrics, and telemetry throughout our training process, which helped us monitor model performance and compare different approaches. Results are available on wandb at \url{https://wandb.ai/alonbebchuk-tel-aviv-university/werewolf}.
 
 \section{Convergence Graphs}
 This section presents the training convergence graphs for our models, captured using Weights \& Biases. Each graph shows the progression of training loss, evaluation loss, evaluation F1 score, and evaluation accuracy throughout the training process.
